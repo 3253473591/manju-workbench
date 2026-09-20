@@ -1,0 +1,2689 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+
+info:
+  title: 漫剧工作台 API
+  version: 0.1.0
+  summary: 大纲 → 剧本 → 分镜 → 图片 → 视频 的可追溯生产接口
+  description: |
+    本文件是《漫剧工作台 PRD》对应后端的**正式接口契约**，取代 docs/api/conventions.md 的草稿口径。
+    实现必须与本文件一致；FastAPI 实际服务的 `/openapi.json` 由测试逐条比对本文件的 path + method 集合。
+
+    ## 通用约定
+    - Base path：`/api/v1`
+    - 鉴权：数据库随机会话 token，前端 `localStorage` 保存，请求头 `Authorization: Bearer <token>`；不使用 JWT。
+    - 时间：UTC ISO 8601（`2026-09-20T12:00:00Z`）。
+    - 金额：decimal 字符串，**不使用浮点数**。`user` 角色的任何响应都不含计费字段。
+    - 分页：`page`（默认 1）、`pageSize`（默认 20，最大 100），响应统一 `items` / `total` / `page` / `pageSize`。
+    - 写请求建议携带 `X-Request-Id`；**生成类写请求必须携带 `Idempotency-Key`**。
+    - 乐观锁：内容编辑请求携带 `expectedVersion`，不匹配返回 409 `CONTENT_VERSION_CONFLICT`。
+
+    ## 字段裁剪（服务端强制，不依赖前端）
+    - 任意角色都**不返回**：`password_hash`、`token_hash`、`credential_ref` 的实际值、隐藏预设 A 原文、完整内部组装/优化文本、完整供应商 data URL。
+    - `user`：不返回单价、预估、费用明细与项目合计。
+    - `manager` / `admin`：可返回费用与脱敏 attempt 元数据。
+
+    ## 隐藏 A 与可见 B
+    图片/视频方案节点保存两个东西：服务端隐藏预设 A（不通过任何接口返回）与用户可见可编辑的描述 B
+    （`PromptVersion.visibleText`）。选版与编辑只面向 B；同版再次抽卡复用已冻结的 `finalInputHash`。
+
+    ## 角色
+    | 角色 | 说明 |
+    |---|---|
+    | `user` | 编辑生产内容、提交生成、查看产物与来源；不返回计费字段 |
+    | `manager` | 只读查看生产内容、产物、来源、费用明细与项目合计；不可编辑或生成 |
+    | `admin` | 完整生产与计费权限，另含用户管理、角色调整、账号启停、模型配置 |
+  contact:
+    name: 漫剧工作台
+  license:
+    name: MIT
+
+servers:
+  - url: http://127.0.0.1:8010/api/v1
+    description: 本地开发（后端端口 8010）
+  - url: http://localhost/api/v1
+    description: 部署占位
+
+tags:
+  - name: system
+    description: 健康检查与运行模式
+  - name: auth
+    description: 注册、登录、退出、当前用户
+  - name: admin
+    description: 用户管理、角色与启停、模型配置（admin）
+  - name: projects
+    description: 项目与剧集
+  - name: canvas
+    description: 画布节点、布局与依赖边
+  - name: documents
+    description: 大纲 / 人物设定 / 剧本 的草稿、版本与专用动作
+  - name: clips
+    description: Clip 与内部镜头、参考资产引用、视频方案入口
+  - name: assets
+    description: 项目共享资产、资产规划确认与图片方案
+  - name: media
+    description: 媒体方案/结果节点、提示词版本、抽卡与联合派生
+  - name: generation
+    description: 提交状态、attempt 与交付
+  - name: billing
+    description: 费用预估、明细与项目合计（manager/admin）
+  - name: files
+    description: 文本与图片导入、媒体文件读取
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------- system
+  /health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, mode, version]
+                properties:
+                  status: { type: string, const: ok }
+                  mode:
+                    type: string
+                    enum: [mock, real]
+                    description: 当前 APP_MODE
+                  version: { type: string }
+                  database:
+                    type: string
+                    enum: [up, down]
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /meta:
+    get:
+      tags: [system]
+      operationId: getMeta
+      summary: 运行模式与可用模型档位
+      description: |
+        只返回**已核验可用**的 real 档位；`APP_MODE=mock` 时 `realAvailable=false`，
+        不把未核验的模型伪装成可用。
+      security: []
+      responses:
+        '200':
+          description: 元信息
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mode, realAvailable, imageProducts, videoProducts]
+                properties:
+                  mode: { type: string, enum: [mock, real] }
+                  realAvailable: { type: boolean }
+                  imageProducts:
+                    type: array
+                    items: { type: string, enum: [lite, pro] }
+                  videoProducts:
+                    type: array
+                    items: { type: string, enum: [mini, fast, '2.5'] }
+
+  # ---------------------------------------------------------------- auth
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: 注册（角色固定为 user）
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, displayName]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 120
+                  pattern: '^[A-Za-z0-9_.-]+$'
+                password: { type: string, minLength: 6, maxLength: 128 }
+                displayName: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '201':
+          description: 注册成功（不返回 token，需再调用登录）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '400': { $ref: '#/components/responses/PasswordPolicyFailed' }
+        '409': { $ref: '#/components/responses/RegisterUsernameExists' }
+        '422': { $ref: '#/components/responses/InvalidRequest' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: 登录，返回用户资料与新建的会话 token
+      description: token 只在该次响应中返回一次；数据库只保存它的哈希。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResult' }
+        '401': { $ref: '#/components/responses/AuthInvalid' }
+        '403': { $ref: '#/components/responses/AccountDisabled' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: 退出登录（吊销当前会话）
+      responses:
+        '204': { description: 已吊销 }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: 当前用户与角色
+      responses:
+        '200':
+          description: 当前用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+
+  # ---------------------------------------------------------------- admin
+  /admin/users:
+    get:
+      tags: [admin]
+      operationId: listUsers
+      summary: 用户列表
+      x-required-roles: [admin]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: keyword
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 用户分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/users/{userId}:
+    patch:
+      tags: [admin]
+      operationId: updateUser
+      summary: 调整角色、启停账号或修改显示名
+      description: 禁止禁用或降级最后一个启用的管理员（409 `LAST_ADMIN_REQUIRED`）。角色变更或停用会吊销该账号已有会话。
+      x-required-roles: [admin]
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                status: { $ref: '#/components/schemas/AccountStatus' }
+                displayName: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200':
+          description: 更新后的用户
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LastAdminRequired' }
+
+  /admin/model-configs:
+    get:
+      tags: [admin]
+      operationId: listModelConfigs
+      summary: 模型配置列表
+      x-required-roles: [admin]
+      responses:
+        '200':
+          description: 模型配置
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelConfigList' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [admin]
+      operationId: createModelConfig
+      summary: 新增模型配置
+      x-required-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModelConfigInput' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelConfigEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/model-configs/{configId}:
+    patch:
+      tags: [admin]
+      operationId: updateModelConfig
+      summary: 修改模型配置（启用、价格、并发、规格）
+      x-required-roles: [admin]
+      parameters:
+        - $ref: '#/components/parameters/ConfigIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ModelConfigInput' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelConfigEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- projects
+  /projects:
+    get:
+      tags: [projects]
+      operationId: listProjects
+      summary: 项目列表（所有登录用户共享同一组项目）
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 项目分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectPage' }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+    post:
+      tags: [projects]
+      operationId: createProject
+      summary: 新建项目
+      description: |
+        服务端在同一事务内自动创建「第 1 集」与居中的大纲节点，并建立大纲文档。
+        首版只开放单集，但数据仍保留剧集归属。
+      x-required-roles: [user, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 2000, default: '' }
+      responses:
+        '201':
+          description: 已创建，含自动生成的剧集与大纲节点
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{projectId}:
+    get:
+      tags: [projects]
+      operationId: getProject
+      summary: 项目详情（含剧集与大纲节点 id）
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      responses:
+        '200':
+          description: 项目详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [projects]
+      operationId: updateProject
+      summary: 修改项目
+      description: 项目元信息不是内容编辑表，按 database-design.md §1 不带乐观锁。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string, maxLength: 2000 }
+                status: { $ref: '#/components/schemas/ProjectStatus' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [projects]
+      operationId: deleteProject
+      summary: 软删除项目
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      responses:
+        '204': { description: 已删除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{projectId}/episodes:
+    get:
+      tags: [projects]
+      operationId: listEpisodes
+      summary: 项目下的剧集
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      responses:
+        '200':
+          description: 剧集列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EpisodeList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /episodes/{episodeId}:
+    get:
+      tags: [projects]
+      operationId: getEpisode
+      summary: 剧集详情
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      responses:
+        '200':
+          description: 剧集
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EpisodeEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- canvas
+  /episodes/{episodeId}/canvas:
+    get:
+      tags: [canvas]
+      operationId: getCanvas
+      summary: 画布快照（节点 + 布局 + 依赖边）
+      description: 布局与内容分表保存；本接口一次返回渲染所需的最小集合。
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      responses:
+        '200':
+          description: 画布
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasSnapshot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /episodes/{episodeId}/nodes:
+    post:
+      tags: [canvas]
+      operationId: createCanvasNode
+      summary: 手动创建画布节点
+      description: 拖线仅允许同级或下一阶段；视频不手动同级拖线（由 `POST /clips/{clipId}/video-plans` 创建）。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nodeType]
+              properties:
+                nodeType: { $ref: '#/components/schemas/CanvasNodeType' }
+                label: { type: string, maxLength: 200 }
+                documentId: { type: [string, 'null'] }
+                clipId: { type: [string, 'null'] }
+                mediaId: { type: [string, 'null'] }
+                parentNodeId: { type: [string, 'null'] }
+                layout: { $ref: '#/components/schemas/LayoutInput' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasNodeEnvelope' }
+        '400': { $ref: '#/components/responses/NodeTypeInvalid' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /canvas/nodes/{nodeId}:
+    get:
+      tags: [canvas]
+      operationId: getCanvasNode
+      summary: 节点详情（按类型展开内容）
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+      responses:
+        '200':
+          description: 节点详情
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasNodeDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [canvas]
+      operationId: updateCanvasNode
+      summary: 修改节点标签
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasNodeEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [canvas]
+      operationId: deleteCanvasNode
+      summary: 软删除节点（内容的不可变版本与媒体保留）
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+      responses:
+        '204': { description: 已删除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /canvas/nodes/{nodeId}/layout:
+    patch:
+      tags: [canvas]
+      operationId: updateNodeLayout
+      summary: 保存节点位置与尺寸
+      description: 只写 `canvas_node_layout`，不产生内容版本，也不影响内容指纹。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LayoutInput' }
+      responses:
+        '200':
+          description: 已保存布局
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LayoutEnvelope' }
+        '400': { $ref: '#/components/responses/CanvasLayoutInvalid' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /canvas/nodes/{nodeId}/visibility:
+    patch:
+      tags: [canvas]
+      operationId: updateNodeVisibility
+      summary: 屏蔽 / 解除屏蔽节点
+      description: 屏蔽只影响当前节点，不级联下游，不删除内容与媒体，不触发任务。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hidden]
+              properties:
+                hidden: { type: boolean }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CanvasNodeEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /episodes/{episodeId}/edges:
+    post:
+      tags: [canvas]
+      operationId: createEdge
+      summary: 建立依赖边
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DependencyEdgeInput' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DependencyEdgeEnvelope' }
+        '400': { $ref: '#/components/responses/NodeTypeInvalid' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /canvas/edges/{edgeId}:
+    delete:
+      tags: [canvas]
+      operationId: deleteEdge
+      summary: 删除依赖边
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EdgeIdPath'
+      responses:
+        '204': { description: 已删除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- documents
+  /documents/{documentId}:
+    get:
+      tags: [documents]
+      operationId: getDocument
+      summary: 文档详情（草稿正文 + 当前版本 + 绑定关系）
+      parameters:
+        - $ref: '#/components/parameters/DocumentIdPath'
+      responses:
+        '200':
+          description: 文档
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocumentDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /documents/{documentId}/draft:
+    patch:
+      tags: [documents]
+      operationId: updateDocumentDraft
+      summary: 保存草稿正文（不产生版本）
+      description: 只更新 `body` / `title`；保存成不可变版本请调用 `POST /documents/{documentId}/revisions`。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/DocumentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body: { type: string }
+                title: { type: string, maxLength: 200 }
+                expectedVersion: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: 已保存草稿
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocumentDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+
+  /documents/{documentId}/revisions:
+    get:
+      tags: [documents]
+      operationId: listDocumentRevisions
+      summary: 不可变历史版本列表
+      parameters:
+        - $ref: '#/components/parameters/DocumentIdPath'
+      responses:
+        '200':
+          description: 版本列表（倒序）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentRevisionList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [documents]
+      operationId: createDocumentRevision
+      summary: 保存为新的不可变版本
+      description: |
+        首次保存为 v1。与服务端当前版本比较，**只有实际内容变化才新增版本**；
+        切换历史版本（`fromRevisionId`）不新增版本，只把草稿与当前指针切过去。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/DocumentIdPath'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body: { type: string, description: 省略则使用当前草稿 }
+                title: { type: string, maxLength: 200 }
+                source: { $ref: '#/components/schemas/RevisionSource' }
+                expectedVersion: { type: integer, minimum: 1 }
+                fromRevisionId:
+                  type: [string, 'null']
+                  description: 指定则载入该历史版本到草稿/当前指针，不新增版本
+      responses:
+        '200':
+          description: 已有版本被复用（内容未变化或切换历史版本）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocumentDetail' }
+        '201':
+          description: 新增版本
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContentDocumentDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+
+  /documents/{documentId}/actions/{action}:
+    post:
+      tags: [documents]
+      operationId: runDocumentAction
+      summary: 专用动作（发送优化、生成设定、生成剧本、拆分 Clip、规划人物立绘）
+      description: |
+        专用按钮固定读取**当前保存版本**生成下一阶段，不做 U/A 判断；每个动作创建一个
+        `GenerationSubmission`。响应 202 表示已受理，前端轮询 `GET /submissions/{id}`。
+
+        | action | 适用文档 | 语义 |
+        |---|---|---|
+        | `optimize` | outline / script / clip | 发送：读取当前正文＋本次需求，N 个优化结果分别创建同级节点 |
+        | `generate-setting` | outline | 依据大纲生成人物设定草案 |
+        | `generate-script` | outline | 使用保存后大纲＋已确认设定创建剧本候选；设定为空返回 422 |
+        | `split-clips` | script | 读取当前保存版本拆成独立 Clip 节点 |
+        | `plan-characters` | script | 汇总全部未屏蔽关联 Clip 的人物，产出资产清单（不直接生图） |
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/DocumentIdPath'
+        - $ref: '#/components/parameters/DocumentActionPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirement: { type: string, maxLength: 4000, description: 本次需求，不写入历史版本正文 }
+                count: { type: integer, minimum: 1, maximum: 8, default: 1 }
+                modelConfigId: { type: [string, 'null'] }
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: 幂等键冲突或同一节点已有未结束提交
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  # ---------------------------------------------------------------- clips
+  /episodes/{episodeId}/clips:
+    get:
+      tags: [clips]
+      operationId: listClips
+      summary: 剧集的 Clip 列表（按 clipNo）
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      responses:
+        '200':
+          description: Clip 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipList' }
+    post:
+      tags: [clips]
+      operationId: createClip
+      summary: 手动补建 Clip
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClipInput' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}:
+    get:
+      tags: [clips]
+      operationId: getClip
+      summary: Clip 详情（含内部镜头与参考资产）
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      responses:
+        '200':
+          description: Clip
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [clips]
+      operationId: updateClip
+      summary: 修改 Clip
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClipInput' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+    delete:
+      tags: [clips]
+      operationId: deleteClip
+      summary: 软删除 Clip
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      responses:
+        '204': { description: 已删除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}/shots:
+    post:
+      tags: [clips]
+      operationId: createClipShot
+      summary: 补建内部镜头
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClipShotInput' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipShotEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}/shots/{shotId}:
+    patch:
+      tags: [clips]
+      operationId: updateClipShot
+      summary: 修改内部镜头
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+        - $ref: '#/components/parameters/ShotIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClipShotInput' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipShotEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [clips]
+      operationId: deleteClipShot
+      summary: 删除内部镜头
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+        - $ref: '#/components/parameters/ShotIdPath'
+      responses:
+        '204': { description: 已删除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}/order:
+    patch:
+      tags: [clips]
+      operationId: reorderClip
+      summary: 调整 Clip 叙事顺序
+      description: 叙事顺序不限制生成或播放次序。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clipNo]
+              properties:
+                clipNo: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClipEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}/references:
+    get:
+      tags: [clips]
+      operationId: listClipReferences
+      summary: Clip 参考资产槽位
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      responses:
+        '200':
+          description: 引用列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetReferenceList' }
+    post:
+      tags: [clips]
+      operationId: addClipReference
+      summary: 添加参考资产引用
+      description: 新增引用会触发同名匹配并建立连接。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assetId]
+              properties:
+                assetId: { type: string }
+                slotNo: { type: integer, minimum: 0 }
+                required: { type: boolean, default: true }
+      responses:
+        '201':
+          description: 已添加
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetReferenceEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /clips/{clipId}/references/{referenceId}:
+    delete:
+      tags: [clips]
+      operationId: removeClipReference
+      summary: 移除引用（不删除资产）
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+        - $ref: '#/components/parameters/ReferenceIdPath'
+      responses:
+        '204': { description: 已移除 }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /clips/{clipId}/actions/{action}:
+    post:
+      tags: [clips]
+      operationId: runClipAction
+      summary: Clip 专用动作（发送优化、规划场景、规划道具）
+      description: |
+        | action | 语义 |
+        |---|---|
+        | `optimize` | 发送：优化当前 Clip 并创建同级候选 |
+        | `plan-scenes` | 仅规划当前 Clip 的场景，产出资产清单 |
+        | `plan-props` | 仅规划当前 Clip 的道具，产出资产清单 |
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+        - $ref: '#/components/parameters/ClipActionPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirement: { type: string, maxLength: 4000 }
+                count: { type: integer, minimum: 1, maximum: 8, default: 1 }
+                modelConfigId: { type: [string, 'null'] }
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /clips/{clipId}/video-plans:
+    post:
+      tags: [clips]
+      operationId: createVideoPlan
+      summary: 生成视频方案节点
+      description: |
+        读取**当前保存的 Clip**，重新校验当前参考资产，创建新的关联视频方案节点并生成初始方案；
+        按钮本身不出片。方案节点冻结 Clip、参考图片及槽位顺序。
+        每个所需资产必须**恰有一个未屏蔽图片结果**且文件可定位可读，否则返回 422
+        `ASSET_REFERENCE_INVALID`，不调用视频模型。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/ClipIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirement: { type: string, maxLength: 4000 }
+                modelConfigId: { type: [string, 'null'] }
+                productLabel: { type: string, enum: [mini, fast, '2.5'] }
+      responses:
+        '202':
+          description: 已受理，返回新建的方案节点与提交
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VideoPlanAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/AssetReferenceInvalid' }
+
+  # ---------------------------------------------------------------- assets
+  /projects/{projectId}/assets:
+    get:
+      tags: [assets]
+      operationId: listAssets
+      summary: 项目共享资产列表
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+        - name: assetType
+          in: query
+          schema: { $ref: '#/components/schemas/AssetType' }
+        - name: keyword
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 资产分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetPage' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /asset-plans/confirm:
+    post:
+      tags: [assets]
+      operationId: confirmAssetPlan
+      summary: 确认资产清单（查重、规范命名、回填引用）
+      description: |
+        三个入口（人物立绘 / 场景 / 道具）共用本接口。确认清单**不直接生图**：
+        命中已有结果或方案时直接复用；仅有方案时从原方案抽卡；未命中才创建图片方案节点及初始 V1。
+        规范资产名回填至 Clip 参考列表。
+      x-required-roles: [user, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                submissionId:
+                  type: [string, 'null']
+                  description: 来源规划提交，便于追溯
+                items:
+                  type: array
+                  minItems: 1
+                  items: { $ref: '#/components/schemas/AssetPlanItem' }
+      responses:
+        '200':
+          description: 确认结果（复用的资产 / 新建的图片方案节点 / 回填的引用）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetPlanConfirmResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /assets/{assetId}:
+    get:
+      tags: [assets]
+      operationId: getAsset
+      summary: 资产详情与候选结果
+      parameters:
+        - $ref: '#/components/parameters/AssetIdPath'
+      responses:
+        '200':
+          description: 资产
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [assets]
+      operationId: updateAsset
+      summary: 修改资产规范名 / 变体 / 图种
+      description: 改名仅影响当前资产身份，退出旧组并归入新组；其他候选、Clip 原需求和历史快照不改写。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/AssetIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                canonicalName: { type: string, minLength: 1, maxLength: 200 }
+                variantName: { type: string, maxLength: 200 }
+                imageKind: { type: string, maxLength: 32 }
+                status: { $ref: '#/components/schemas/AssetStatus' }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /assets/{assetId}/image-plans:
+    post:
+      tags: [assets]
+      operationId: createAssetImagePlan
+      summary: 为资产创建图片方案节点
+      description: 已有结果或方案时不重复创建，直接返回既有节点。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/AssetIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                imageKind: { type: string, maxLength: 32 }
+                sourceImageKind:
+                  type: string
+                  description: 指定则从用户选定的具体角色图发起单源图生图，不自动文生图重造角色
+                sourceMediaId: { type: [string, 'null'] }
+                targetName: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: 已创建图片方案节点
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaNodeEnvelope' }
+        '200':
+          description: 复用已有方案节点
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaNodeEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- media
+  /media-nodes/{mediaNodeId}:
+    get:
+      tags: [media]
+      operationId: getMediaNode
+      summary: 方案 / 结果节点详情
+      description: 只返回可见 B 文本、状态、媒体元数据与来源摘要；不返回隐藏 A 与内部组装文本。
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+      responses:
+        '200':
+          description: 媒体节点
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaNodeDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [media]
+      operationId: updateMediaNode
+      summary: 屏蔽 / 解除屏蔽、确认图生图目标名
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                blocked: { type: boolean }
+                targetName: { type: string, maxLength: 200 }
+                title: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: 已更新
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaNodeEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /media-nodes/{mediaNodeId}/prompt-versions:
+    get:
+      tags: [media]
+      operationId: listPromptVersions
+      summary: 方案节点的提示词版本（V1、V2……）
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+      responses:
+        '200':
+          description: 版本列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromptVersionList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [media]
+      operationId: createPromptVersion
+      summary: 追加用户修改的 B 版本
+      description: 只在当前节点追加 V1、V2……，不立即出图；用户选版后主动抽卡。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visibleText]
+              properties:
+                visibleText: { type: string }
+                select: { type: boolean, default: true }
+      responses:
+        '201':
+          description: 已追加版本
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromptVersionEnvelope' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /media-nodes/{mediaNodeId}/prompt-versions/{versionId}/select:
+    post:
+      tags: [media]
+      operationId: selectPromptVersion
+      summary: 选版（面向 B）
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+        - $ref: '#/components/parameters/VersionIdPath'
+      responses:
+        '200':
+          description: 已切换当前版本
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MediaNodeDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /media/{mediaNodeId}/draw:
+    post:
+      tags: [media]
+      operationId: drawMedia
+      summary: 抽卡（N 次生成 N 个独立同级结果节点）
+      description: |
+        修改 B 后直接抽卡：先保存新的「用户修改」方案，再优化新 A+B、绑定最终输入并生图。
+        同版再次抽卡复用已冻结的最终输入，不再优化。N 次抽卡创建 N 个独立同级结果节点，
+        不覆盖旧产物。每次只允许一张源图。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                count: { type: integer, minimum: 1, maximum: 8, default: 1 }
+                seed:
+                  type: integer
+                  default: -1
+                  description: -1 为随机；固定 seed 时数量强制为 1
+                modelConfigId: { type: [string, 'null'] }
+                productLabel: { type: string, enum: [lite, pro] }
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /media-nodes/{mediaNodeId}/derive:
+    post:
+      tags: [media]
+      operationId: deriveMedia
+      summary: 立绘联合派生（面部特写 + 三视图）
+      description: |
+        仅立绘结果节点可用。每次点击以**当次选中的立绘**为源图，新建两个结果节点并固定各生成 1 张，
+        不使用通用抽卡数量；再次点击不覆盖旧结果。使用隐藏固定模板直接生成，不自由改写或人工选版。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /media/{mediaItemId}/file:
+    get:
+      tags: [files]
+      operationId: getMediaFile
+      summary: 读取媒体原文件
+      parameters:
+        - $ref: '#/components/parameters/MediaItemIdPath'
+      responses:
+        '200':
+          description: 文件字节流
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+            video/mp4: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /media/{mediaItemId}/thumbnail:
+    get:
+      tags: [files]
+      operationId: getMediaThumbnail
+      summary: 读取缩略图（视频取第一帧）
+      parameters:
+        - $ref: '#/components/parameters/MediaItemIdPath'
+      responses:
+        '200':
+          description: 缩略图
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------------------------------------------------------- generation
+  /nodes/{nodeId}/generate:
+    post:
+      tags: [generation]
+      operationId: generateFromNode
+      summary: 从节点发起生成（统一入口）
+      description: |
+        按节点类型分派：文本节点 → 文本/提示词任务；图片方案节点 → 抽卡；
+        视频方案节点 → 抽卡；图片结果节点 → 生成图生图方案。等价于各专用接口，便于前端统一调用。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/NodeIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateInput' }
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/GenerationInProgress' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
+
+  /submissions/{submissionId}:
+    get:
+      tags: [generation]
+      operationId: getSubmission
+      summary: 提交状态（轮询入口）
+      description: logical（用户目标）、physical（执行进程）、delivery（持久化与核验）三层状态分别返回，互不覆盖。
+      parameters:
+        - $ref: '#/components/parameters/SubmissionIdPath'
+      responses:
+        '200':
+          description: 提交
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /submissions/{submissionId}/attempts:
+    get:
+      tags: [generation]
+      operationId: listSubmissionAttempts
+      summary: 该提交下的 attempt（每次实际模型调用一行）
+      parameters:
+        - $ref: '#/components/parameters/SubmissionIdPath'
+      responses:
+        '200':
+          description: attempt 列表
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AttemptList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /episodes/{episodeId}/submissions:
+    get:
+      tags: [generation]
+      operationId: listEpisodeSubmissions
+      summary: 剧集的提交历史
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 提交分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubmissionPage' }
+
+  # ---------------------------------------------------------------- billing
+  /projects/{projectId}/billing/summary:
+    get:
+      tags: [billing]
+      operationId: getProjectBillingSummary
+      summary: 项目费用合计
+      x-required-roles: [manager, admin]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+      responses:
+        '200':
+          description: 费用合计（按 attempt 去重，mock 单列不计入实际支出）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillingSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{projectId}/billing/records:
+    get:
+      tags: [billing]
+      operationId: listProjectBillingRecords
+      summary: 费用明细
+      x-required-roles: [manager, admin]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 明细分页
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BillingRecordPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /estimate:
+    post:
+      tags: [billing]
+      operationId: estimateGeneration
+      summary: 生成前费用预估
+      x-required-roles: [manager, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/GenerateInput' }
+      responses:
+        '200':
+          description: 预估结果
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- files
+  /episodes/{episodeId}/imports/text:
+    post:
+      tags: [files]
+      operationId: importTextFile
+      summary: 导入 txt / md / docx 作为大纲、剧本或分镜
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, target]
+              properties:
+                file: { type: string, format: binary }
+                target:
+                  type: string
+                  enum: [outline, script, clip]
+                title: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: 已创建节点（保留原文件）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/FileTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+  /episodes/{episodeId}/imports/image:
+    post:
+      tags: [files]
+      operationId: importImageFile
+      summary: 导入立绘 / 面部特写 / 三视图 / 场景 / 道具图片
+      description: |
+        按命名规范解析（忽略扩展名、完全匹配、不做语义匹配），保留原文件并创建节点。
+        导入立绘**不自动创建派生占位**。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/EpisodeIdPath'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                imageKind:
+                  type: string
+                  enum: [portrait, face_closeup, three_view, scene, prop]
+                canonicalName: { type: string, maxLength: 200 }
+                variantName: { type: string, maxLength: 200 }
+                clipId: { type: [string, 'null'] }
+      responses:
+        '201':
+          description: 已导入并建立同名匹配引用
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResult' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413': { $ref: '#/components/responses/FileTooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMediaType' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+      description: 登录返回的随机会话 token；服务端保存其 SHA-256 哈希。
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    RequestIdHeader:
+      name: X-Request-Id
+      in: header
+      schema: { type: string, maxLength: 64 }
+      description: 不传则服务端生成；会写入日志与 generation submission。
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128 }
+      description: |
+        生成类写请求必填。同一次客户端网络重试复用同一个 key；新用户操作必须换新 key。
+        相同 key 不同请求体返回 409 `IDEMPOTENCY_CONFLICT`。
+    ProjectIdPath:
+      name: projectId
+      in: path
+      required: true
+      schema: { type: string }
+    EpisodeIdPath:
+      name: episodeId
+      in: path
+      required: true
+      schema: { type: string }
+    DocumentIdPath:
+      name: documentId
+      in: path
+      required: true
+      schema: { type: string }
+    NodeIdPath:
+      name: nodeId
+      in: path
+      required: true
+      schema: { type: string }
+    EdgeIdPath:
+      name: edgeId
+      in: path
+      required: true
+      schema: { type: string }
+    ClipIdPath:
+      name: clipId
+      in: path
+      required: true
+      schema: { type: string }
+    ShotIdPath:
+      name: shotId
+      in: path
+      required: true
+      schema: { type: string }
+    ReferenceIdPath:
+      name: referenceId
+      in: path
+      required: true
+      schema: { type: string }
+    AssetIdPath:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string }
+    MediaNodeIdPath:
+      name: mediaNodeId
+      in: path
+      required: true
+      schema: { type: string }
+    MediaItemIdPath:
+      name: mediaItemId
+      in: path
+      required: true
+      schema: { type: string }
+    VersionIdPath:
+      name: versionId
+      in: path
+      required: true
+      schema: { type: string }
+    SubmissionIdPath:
+      name: submissionId
+      in: path
+      required: true
+      schema: { type: string }
+    UserIdPath:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string }
+    ConfigIdPath:
+      name: configId
+      in: path
+      required: true
+      schema: { type: string }
+    DocumentActionPath:
+      name: action
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [optimize, generate-setting, generate-script, split-clips, plan-characters]
+    ClipActionPath:
+      name: action
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [optimize, plan-scenes, plan-props]
+
+  responses:
+    InvalidRequest:
+      description: 请求参数不合法
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    AuthRequired:
+      description: 未登录或会话无效
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    AuthInvalid:
+      description: 用户名或密码错误
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    AccountDisabled:
+      description: 账号已停用
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: 当前角色无权执行该操作
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: 资源不存在或已软删除
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: 冲突（幂等键或生成进行中）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    VersionConflict:
+      description: 乐观锁版本冲突
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RegisterUsernameExists:
+      description: 用户名已存在
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    PasswordPolicyFailed:
+      description: 密码不符合策略
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    LastAdminRequired:
+      description: 必须保留至少一个启用的管理员
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NodeTypeInvalid:
+      description: 节点类型与所填字段不匹配
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    CanvasLayoutInvalid:
+      description: 布局坐标或尺寸非法
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    GenerationInProgress:
+      description: 同一节点已有未结束的提交
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    BusinessRule:
+      description: 业务前置条件不满足
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    AssetReferenceInvalid:
+      description: 视频所需图片候选不是恰好一个可用结果
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    FileTooLarge:
+      description: 文件超过配置上限
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    UnsupportedMediaType:
+      description: 不支持的文件类型
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: 本地或供应商限流
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ProviderRejected:
+      description: 外部模型明确拒绝
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ProviderUnavailable:
+      description: 外部模型不可用或凭证失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ProviderTimeoutUnknown:
+      description: 请求结果未知，不能自动重提
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    DeliveryFailed:
+      description: 交付核验失败
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: 未预期错误（响应不泄露堆栈）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    SubmissionAccepted:
+      description: 已受理，后续轮询提交状态
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SubmissionAccepted' }
+
+  schemas:
+    # ---------------------------------------------------------- envelope
+    ErrorResponse:
+      type: object
+      required: [success, error, requestId, timestamp]
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: 前端只依赖 code，不依赖 message 做分支判断
+              examples: [CONTENT_VERSION_CONFLICT]
+            message: { type: string, description: 可直接展示给用户 }
+            details:
+              type: object
+              additionalProperties: true
+              description: 只放脱敏、可操作信息
+        requestId: { type: string }
+        timestamp: { type: string, format: date-time }
+
+    ErrorCode:
+      type: string
+      enum:
+        - INVALID_REQUEST
+        - AUTH_REQUIRED
+        - AUTH_INVALID
+        - ACCOUNT_DISABLED
+        - FORBIDDEN
+        - REGISTER_USERNAME_EXISTS
+        - PASSWORD_POLICY_FAILED
+        - LAST_ADMIN_REQUIRED
+        - RESOURCE_NOT_FOUND
+        - CONTENT_VERSION_CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - GENERATION_IN_PROGRESS
+        - NODE_TYPE_INVALID
+        - CANVAS_LAYOUT_INVALID
+        - BUSINESS_RULE_VIOLATION
+        - ASSET_REFERENCE_INVALID
+        - FILE_TOO_LARGE
+        - UNSUPPORTED_MEDIA_TYPE
+        - RATE_LIMITED
+        - MODEL_NOT_AVAILABLE
+        - PROVIDER_REJECTED
+        - PROVIDER_UNAVAILABLE
+        - PROVIDER_TIMEOUT_UNKNOWN
+        - DELIVERY_FAILED
+        - INTERNAL_ERROR
+
+    # ---------------------------------------------------------- identity
+    Role: { type: string, enum: [user, manager, admin] }
+    AccountStatus: { type: string, enum: [active, disabled] }
+    User:
+      type: object
+      required: [id, username, displayName, role, status, createdAt]
+      properties:
+        id: { type: string }
+        username: { type: string }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        lastLoginAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    UserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+    UserList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    UserPage: { $ref: '#/components/schemas/UserList' }
+    LoginResult:
+      type: object
+      required: [user, sessionToken, expiresAt]
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        sessionToken:
+          type: string
+          description: 只在创建响应中返回一次，前端保存到 localStorage
+        expiresAt: { type: string, format: date-time }
+
+    # ---------------------------------------------------------- project
+    ProjectStatus: { type: string, enum: [active, archived] }
+    EpisodeStatus: { type: string, enum: [draft, active, archived] }
+    Project:
+      type: object
+      required: [id, name, description, status, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: '#/components/schemas/ProjectStatus' }
+        coverMediaId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ProjectDetail:
+      type: object
+      required: [project, episodes]
+      properties:
+        project: { $ref: '#/components/schemas/Project' }
+        episodes:
+          type: array
+          items: { $ref: '#/components/schemas/Episode' }
+        outlineNodeId:
+          type: [string, 'null']
+          description: 自动创建的大纲节点 id
+    ProjectList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Project' }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    ProjectPage: { $ref: '#/components/schemas/ProjectList' }
+    Episode:
+      type: object
+      required: [id, projectId, number, title, status, createdAt]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        number: { type: integer }
+        title: { type: string }
+        status: { $ref: '#/components/schemas/EpisodeStatus' }
+        createdAt: { type: string, format: date-time }
+    EpisodeEnvelope:
+      type: object
+      required: [episode]
+      properties:
+        episode: { $ref: '#/components/schemas/Episode' }
+    EpisodeList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Episode' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- canvas
+    CanvasNodeType: { type: string, enum: [text, shot, image, video] }
+    EdgeType: { type: string, enum: [derives, references, source] }
+    LayoutInput:
+      type: object
+      required: [x, y, width, height]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        width: { type: number, minimum: 120, maximum: 2000 }
+        height: { type: number, minimum: 80, maximum: 4000 }
+        zIndex: { type: integer }
+    CanvasNodeLayout:
+      type: object
+      required: [x, y, width, height, zIndex]
+      properties:
+        x: { type: number }
+        y: { type: number }
+        width: { type: number }
+        height: { type: number }
+        zIndex: { type: integer }
+    LayoutEnvelope:
+      type: object
+      required: [nodeId, layout]
+      properties:
+        nodeId: { type: string }
+        layout: { $ref: '#/components/schemas/CanvasNodeLayout' }
+    CanvasNode:
+      type: object
+      required: [id, episodeId, nodeType, label, hidden, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        episodeId: { type: string }
+        nodeType: { $ref: '#/components/schemas/CanvasNodeType' }
+        documentId: { type: [string, 'null'] }
+        clipId: { type: [string, 'null'] }
+        mediaId: { type: [string, 'null'] }
+        parentNodeId: { type: [string, 'null'] }
+        label: { type: string }
+        hidden: { type: boolean }
+        contentFingerprint: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CanvasNodeEnvelope:
+      type: object
+      required: [node]
+      properties:
+        node: { $ref: '#/components/schemas/CanvasNode' }
+    CanvasNodeDetail:
+      type: object
+      required: [node]
+      properties:
+        node: { $ref: '#/components/schemas/CanvasNode' }
+        layout: { $ref: '#/components/schemas/CanvasNodeLayout' }
+        document: { $ref: '#/components/schemas/ContentDocumentDetail' }
+        clip: { $ref: '#/components/schemas/ClipDetail' }
+        mediaNode: { $ref: '#/components/schemas/MediaNodeDetail' }
+    CanvasSnapshot:
+      type: object
+      required: [episodeId, nodes, edges]
+      properties:
+        episodeId: { type: string }
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [node, layout]
+            properties:
+              node: { $ref: '#/components/schemas/CanvasNode' }
+              layout: { $ref: '#/components/schemas/CanvasNodeLayout' }
+        edges:
+          type: array
+          items: { $ref: '#/components/schemas/DependencyEdge' }
+    DependencyEdgeInput:
+      type: object
+      required: [fromNodeId, toNodeId]
+      properties:
+        fromNodeId: { type: string }
+        toNodeId: { type: string }
+        edgeType: { $ref: '#/components/schemas/EdgeType' }
+        note: { type: string, maxLength: 500 }
+    DependencyEdge:
+      type: object
+      required: [id, episodeId, fromNodeId, toNodeId, edgeType]
+      properties:
+        id: { type: string }
+        episodeId: { type: string }
+        fromNodeId: { type: string }
+        toNodeId: { type: string }
+        edgeType: { $ref: '#/components/schemas/EdgeType' }
+        note: { type: string }
+    DependencyEdgeEnvelope:
+      type: object
+      required: [edge]
+      properties:
+        edge: { $ref: '#/components/schemas/DependencyEdge' }
+
+    # ---------------------------------------------------------- content
+    DocumentKind: { type: string, enum: [outline, setting, script, clip] }
+    DocumentStatus: { type: string, enum: [draft, saved, archived] }
+    RevisionSource: { type: string, enum: [user, ai, import] }
+    ContentDocument:
+      type: object
+      required: [id, episodeId, kind, title, body, status, version, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        episodeId: { type: string }
+        kind: { $ref: '#/components/schemas/DocumentKind' }
+        parentDocumentId: { type: [string, 'null'] }
+        title: { type: string }
+        body:
+          type: string
+          description: 草稿正文；图片/视频方案节点的提示词不在此返回
+        status: { $ref: '#/components/schemas/DocumentStatus' }
+        version: { type: integer }
+        currentRevisionId: { type: [string, 'null'] }
+        boundOutlineRevisionId: { type: [string, 'null'] }
+        boundSettingRevisionId: { type: [string, 'null'] }
+        sourceRevisionId: { type: [string, 'null'] }
+        nodeId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ContentDocumentDetail:
+      type: object
+      required: [document]
+      properties:
+        document: { $ref: '#/components/schemas/ContentDocument' }
+        currentRevision: { $ref: '#/components/schemas/ContentRevision' }
+        revisions:
+          type: array
+          items: { $ref: '#/components/schemas/ContentRevision' }
+        hasUnsavedDraft:
+          type: boolean
+          description: 草稿与当前版本正文不同时为 true
+    ContentRevision:
+      type: object
+      required: [id, documentId, revisionNo, source, title, body, createdAt]
+      properties:
+        id: { type: string }
+        documentId: { type: string }
+        revisionNo: { type: integer }
+        source: { $ref: '#/components/schemas/RevisionSource' }
+        title: { type: string }
+        body: { type: string }
+        metadata: { type: object, additionalProperties: true }
+        createdBy: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    ContentRevisionList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ContentRevision' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- clips
+    ClipStatus: { type: string, enum: [draft, ready, generating, done] }
+    ClipShotInput:
+      type: object
+      properties:
+        shotNo: { type: integer, minimum: 1 }
+        startMs: { type: integer, minimum: 0 }
+        endMs: { type: integer, minimum: 0 }
+        visualText: { type: string }
+        cameraText: { type: string }
+        dialogueText: { type: string }
+        soundText: { type: string }
+    ClipShot:
+      type: object
+      required: [id, clipId, shotNo, startMs, endMs]
+      properties:
+        id: { type: string }
+        clipId: { type: string }
+        shotNo: { type: integer }
+        startMs: { type: integer }
+        endMs: { type: integer }
+        visualText: { type: string }
+        cameraText: { type: string }
+        dialogueText: { type: string }
+        soundText: { type: string }
+    ClipShotEnvelope:
+      type: object
+      required: [shot]
+      properties:
+        shot: { $ref: '#/components/schemas/ClipShot' }
+    ClipInput:
+      type: object
+      properties:
+        clipNo: { type: integer, minimum: 1 }
+        title: { type: string, maxLength: 200 }
+        durationMs: { type: integer, minimum: 0 }
+        characters:
+          type: array
+          items: { type: string }
+        locationName: { type: string, maxLength: 200 }
+        body: { type: string }
+        status: { $ref: '#/components/schemas/ClipStatus' }
+        expectedVersion: { type: integer, minimum: 1 }
+    Clip:
+      type: object
+      required: [id, episodeId, clipNo, title, durationMs, characters, locationName, status, version]
+      properties:
+        id: { type: string }
+        episodeId: { type: string }
+        documentId: { type: [string, 'null'] }
+        sourceRevisionId: { type: [string, 'null'] }
+        clipNo: { type: integer }
+        title: { type: string }
+        durationMs: { type: integer }
+        characters:
+          type: array
+          items: { type: string }
+        locationName: { type: string }
+        status: { $ref: '#/components/schemas/ClipStatus' }
+        body: { type: string }
+        version: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ClipEnvelope:
+      type: object
+      required: [clip]
+      properties:
+        clip: { $ref: '#/components/schemas/Clip' }
+    ClipDetail:
+      type: object
+      required: [clip]
+      properties:
+        clip: { $ref: '#/components/schemas/Clip' }
+        shots:
+          type: array
+          items: { $ref: '#/components/schemas/ClipShot' }
+        references:
+          type: array
+          items: { $ref: '#/components/schemas/AssetReference' }
+    ClipList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Clip' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- assets
+    AssetType: { type: string, enum: [character, scene, prop] }
+    AssetStatus: { type: string, enum: [planned, active, archived] }
+    AssetPlanItem:
+      type: object
+      required: [assetType, canonicalName]
+      properties:
+        assetType: { $ref: '#/components/schemas/AssetType' }
+        canonicalName: { type: string, minLength: 1, maxLength: 200 }
+        variantName: { type: string, maxLength: 200, default: '' }
+        imageKind:
+          type: string
+          maxLength: 32
+          description: 立绘 / 三视图 / 面部特写 / 场景 / 道具
+        clipIds:
+          type: array
+          items: { type: string }
+          description: 需要回填规范名的 Clip
+        sourceMediaId: { type: [string, 'null'] }
+        targetName: { type: string, maxLength: 200 }
+    AssetPlanConfirmResult:
+      type: object
+      required: [assets, createdMediaNodes, reused, references]
+      properties:
+        assets:
+          type: array
+          items: { $ref: '#/components/schemas/Asset' }
+        createdMediaNodes:
+          type: array
+          items: { $ref: '#/components/schemas/MediaNode' }
+          description: 未命中时新建的图片方案节点
+        reused:
+          type: array
+          items: { $ref: '#/components/schemas/MediaNode' }
+          description: 命中已有结果或方案而复用的节点
+        references:
+          type: array
+          items: { $ref: '#/components/schemas/AssetReference' }
+    Asset:
+      type: object
+      required: [id, projectId, assetType, canonicalName, variantName, status]
+      properties:
+        id: { type: string }
+        projectId: { type: string }
+        assetType: { $ref: '#/components/schemas/AssetType' }
+        canonicalName: { type: string }
+        variantName: { type: string }
+        imageKind: { type: string }
+        status: { $ref: '#/components/schemas/AssetStatus' }
+        mediaNodeId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+    AssetDetail:
+      type: object
+      required: [asset]
+      properties:
+        asset: { $ref: '#/components/schemas/Asset' }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/MediaNode' }
+          description: 同名候选的图片方案与结果节点
+        usableResultCount:
+          type: integer
+          description: 未屏蔽且文件可用的图片结果数；视频方案前置校验要求恰好为 1
+    AssetList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Asset' }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    AssetPage: { $ref: '#/components/schemas/AssetList' }
+    AssetReference:
+      type: object
+      required: [id, clipId, assetId, slotNo, required]
+      properties:
+        id: { type: string }
+        clipId: { type: string }
+        assetId: { type: string }
+        slotNo: { type: integer }
+        required: { type: boolean }
+        source: { type: string, enum: [auto, manual] }
+        asset: { $ref: '#/components/schemas/Asset' }
+    AssetReferenceEnvelope:
+      type: object
+      required: [reference]
+      properties:
+        reference: { $ref: '#/components/schemas/AssetReference' }
+    AssetReferenceList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AssetReference' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- media
+    MediaType: { type: string, enum: [image, video, audio, file] }
+    MediaKind: { type: string, enum: [image_plan, image_result, video_plan, video_result] }
+    DecodeStatus: { type: string, enum: [pending, verified, failed] }
+    DeliveryStatus: { type: string, enum: [pending, verified, failed] }
+    MediaItem:
+      type: object
+      required: [id, mediaType, fileKey, mimeType, sizeBytes, sha256, decodeStatus]
+      properties:
+        id: { type: string }
+        mediaType: { $ref: '#/components/schemas/MediaType' }
+        fileKey: { type: string }
+        originalName: { type: string }
+        mimeType: { type: string }
+        sizeBytes: { type: integer }
+        sha256: { type: string }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        durationMs: { type: [integer, 'null'] }
+        decodeStatus: { $ref: '#/components/schemas/DecodeStatus' }
+        fileUrl: { type: string, description: 'GET /media/{id}/file 的相对路径' }
+        thumbnailUrl: { type: [string, 'null'] }
+    MediaNode:
+      type: object
+      required: [id, episodeId, mediaKind, blocked]
+      properties:
+        id: { type: string }
+        episodeId: { type: string }
+        mediaKind: { $ref: '#/components/schemas/MediaKind' }
+        mediaItemId: { type: [string, 'null'] }
+        sourceMediaId: { type: [string, 'null'] }
+        promptVersionId: { type: [string, 'null'] }
+        clipId: { type: [string, 'null'] }
+        assetId: { type: [string, 'null'] }
+        targetName: { type: string }
+        title: { type: string }
+        blocked: { type: boolean }
+        seed: { type: integer }
+        params: { type: object, additionalProperties: true }
+    MediaNodeDetail:
+      type: object
+      required: [mediaNode]
+      properties:
+        mediaNode: { $ref: '#/components/schemas/MediaNode' }
+        visiblePrompt:
+          type: [string, 'null']
+          description: 当前选中版本的 B 文本；绝不包含隐藏 A 或内部组装文本
+        promptVersions:
+          type: array
+          items: { $ref: '#/components/schemas/PromptVersion' }
+        media:
+          oneOf:
+            - $ref: '#/components/schemas/MediaItem'
+            - type: 'null'
+        sourceMedia:
+          oneOf:
+            - $ref: '#/components/schemas/MediaItem'
+            - type: 'null'
+        referenceImages:
+          type: array
+          description: 视频方案冻结的参考图与槽位顺序
+          items: { $ref: '#/components/schemas/MediaItem' }
+        frozenClip:
+          oneOf:
+            - $ref: '#/components/schemas/Clip'
+            - type: 'null'
+        sourceSummary:
+          type: object
+          additionalProperties: true
+          description: 来源摘要（版本引用、attempt 计数等），不含隐藏字段
+    MediaNodeEnvelope:
+      type: object
+      required: [mediaNode]
+      properties:
+        mediaNode: { $ref: '#/components/schemas/MediaNode' }
+    PromptSource: { type: string, enum: [ai, user, import, template] }
+    PromptVersion:
+      type: object
+      required: [id, nodeId, revisionNo, visibleText, source, createdAt]
+      properties:
+        id: { type: string }
+        nodeId: { type: string }
+        revisionNo: { type: integer }
+        visibleText: { type: string, description: 用户可见可编辑的 B 文本 }
+        hiddenTemplateVersion: { type: string, description: 只有版本标识，没有正文 }
+        finalInputHash: { type: string }
+        source: { $ref: '#/components/schemas/PromptSource' }
+        createdAt: { type: string, format: date-time }
+    PromptVersionEnvelope:
+      type: object
+      required: [promptVersion]
+      properties:
+        promptVersion: { $ref: '#/components/schemas/PromptVersion' }
+    PromptVersionList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PromptVersion' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- generation
+    LogicalStatus: { type: string, enum: [pending, running, succeeded, failed, cancelled] }
+    PhysicalStatus:
+      type: string
+      enum: [reserved, accepted, running, succeeded, failed, unknown]
+    Operation:
+      type: string
+      enum:
+        - outline_optimize
+        - setting_generate
+        - script_generate
+        - script_optimize
+        - script_split_clips
+        - clip_optimize
+        - plan_characters
+        - plan_scenes
+        - plan_props
+        - image_plan_create
+        - image_plan_optimize
+        - image_draw
+        - image_derive
+        - video_plan_create
+        - video_plan_optimize
+        - video_draw
+    GenerateInput:
+      type: object
+      properties:
+        requirement: { type: string, maxLength: 4000 }
+        count: { type: integer, minimum: 1, maximum: 8, default: 1 }
+        seed: { type: integer, default: -1 }
+        modelConfigId: { type: [string, 'null'] }
+        productLabel: { type: string }
+        nodeId: { type: [string, 'null'], description: 'POST /estimate 时指定目标节点' }
+    SubmissionAccepted:
+      type: object
+      required: [submissionId, operation, logicalStatus]
+      properties:
+        submissionId: { type: string }
+        operation: { $ref: '#/components/schemas/Operation' }
+        logicalStatus: { $ref: '#/components/schemas/LogicalStatus' }
+        requestedCount: { type: integer }
+        nodeIds:
+          type: array
+          items: { type: string }
+          description: 本次操作创建或影响的节点
+    VideoPlanAccepted:
+      allOf:
+        - $ref: '#/components/schemas/SubmissionAccepted'
+        - type: object
+          required: [mediaNode]
+          properties:
+            mediaNode: { $ref: '#/components/schemas/MediaNode' }
+    Submission:
+      type: object
+      required: [id, operation, logicalStatus, requestedCount, createdAt]
+      properties:
+        id: { type: string }
+        operation: { $ref: '#/components/schemas/Operation' }
+        logicalStatus: { $ref: '#/components/schemas/LogicalStatus' }
+        requestedCount: { type: integer }
+        episodeId: { type: [string, 'null'] }
+        nodeId: { type: [string, 'null'] }
+        targetType: { type: [string, 'null'] }
+        targetId: { type: [string, 'null'] }
+        errorCode: { type: string }
+        errorMessage: { type: string }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+    Attempt:
+      type: object
+      required: [id, submissionId, attemptNo, operation, physicalStatus, deliveryStatus, isMock]
+      properties:
+        id: { type: string }
+        submissionId: { type: string }
+        attemptNo: { type: integer }
+        operation: { $ref: '#/components/schemas/Operation' }
+        modelConfigId: { type: [string, 'null'] }
+        contentFingerprint: { type: string }
+        physicalStatus: { $ref: '#/components/schemas/PhysicalStatus' }
+        deliveryStatus: { $ref: '#/components/schemas/DeliveryStatus' }
+        providerRequestId: { type: string }
+        providerTaskId: { type: [string, 'null'] }
+        providerStatusRaw: { type: string }
+        errorCode: { type: string }
+        errorMessage: { type: string }
+        isMock: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        delivery:
+          oneOf:
+            - $ref: '#/components/schemas/DeliveryRecord'
+            - type: 'null'
+        usage:
+          oneOf:
+            - $ref: '#/components/schemas/UsageRecord'
+            - type: 'null'
+          description: 仅 manager / admin 返回
+    DeliveryRecord:
+      type: object
+      required: [id, attemptId, deliveryStatus, decodeStatus]
+      properties:
+        id: { type: string }
+        attemptId: { type: string }
+        deliveryStatus: { $ref: '#/components/schemas/DeliveryStatus' }
+        fileKey: { type: string }
+        sha256: { type: string }
+        decodeStatus: { $ref: '#/components/schemas/DecodeStatus' }
+        width: { type: [integer, 'null'] }
+        height: { type: [integer, 'null'] }
+        durationMs: { type: [integer, 'null'] }
+        thumbnailFileKey: { type: string }
+        verifiedAt: { type: [string, 'null'], format: date-time }
+        errorMessage: { type: string }
+    SubmissionDetail:
+      type: object
+      required: [submission]
+      properties:
+        submission: { $ref: '#/components/schemas/Submission' }
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/Attempt' }
+        producedNodeIds:
+          type: array
+          items: { type: string }
+    SubmissionList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Submission' }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    SubmissionPage: { $ref: '#/components/schemas/SubmissionList' }
+    AttemptList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Attempt' }
+        total: { type: integer }
+
+    # ---------------------------------------------------------- model / billing
+    ProviderCapability: { type: string, enum: [text, image, video] }
+    BillingStatus: { type: string, enum: [unknown, estimated, confirmed, mock] }
+    ModelConfig:
+      type: object
+      required: [id, provider, capability, productLabel, enabled]
+      properties:
+        id: { type: string }
+        provider: { type: string }
+        capability: { $ref: '#/components/schemas/ProviderCapability' }
+        productLabel: { type: string }
+        endpointId: { type: string }
+        actualModel: { type: string }
+        enabled: { type: boolean }
+        isDefault: { type: boolean }
+        verifiedAt: { type: [string, 'null'], format: date-time }
+        spec: { type: object, additionalProperties: true }
+        priceAmount: { type: string, description: decimal 字符串 }
+        priceCurrency: { type: string }
+        priceUnit: { type: string }
+        concurrencyLimit: { type: integer }
+    ModelConfigInput:
+      type: object
+      required: [provider, capability, productLabel]
+      properties:
+        provider: { type: string, default: ark }
+        capability: { $ref: '#/components/schemas/ProviderCapability' }
+        productLabel: { type: string }
+        endpointId: { type: string }
+        actualModel: { type: string }
+        enabled: { type: boolean, default: true }
+        isDefault: { type: boolean, default: false }
+        spec: { type: object, additionalProperties: true }
+        priceAmount: { type: string }
+        priceCurrency: { type: string, default: CNY }
+        priceUnit: { type: string }
+        concurrencyLimit: { type: integer, minimum: 1, default: 1 }
+        credentialRef:
+          type: string
+          description: 环境变量名；响应中不返回实际密钥
+    ModelConfigEnvelope:
+      type: object
+      required: [modelConfig]
+      properties:
+        modelConfig: { $ref: '#/components/schemas/ModelConfig' }
+    ModelConfigList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ModelConfig' }
+        total: { type: integer }
+    UsageRecord:
+      type: object
+      required: [id, attemptId, billingStatus, isMock]
+      properties:
+        id: { type: string }
+        attemptId: { type: string }
+        inputUnits: { type: [integer, 'null'], description: '缺失记为 null，不默认 0' }
+        outputUnits: { type: [integer, 'null'] }
+        unit: { type: object, additionalProperties: true }
+        estimatedAmount: { type: [string, 'null'] }
+        actualAmount: { type: [string, 'null'] }
+        billingStatus: { $ref: '#/components/schemas/BillingStatus' }
+        isMock: { type: boolean }
+    BillingSummary:
+      type: object
+      required: [currency, attemptCount, actualTotal, estimatedTotal, mockTotal]
+      properties:
+        currency: { type: string }
+        attemptCount: { type: integer, description: 按 attempt 去重后的计费条数 }
+        actualTotal: { type: string }
+        estimatedTotal: { type: string }
+        mockTotal: { type: string, description: mock 明确标识，不计入实际支出 }
+        byOperation:
+          type: array
+          items:
+            type: object
+            required: [operation, attemptCount, amount]
+            properties:
+              operation: { $ref: '#/components/schemas/Operation' }
+              attemptCount: { type: integer }
+              amount: { type: string }
+        unknownUsageCount:
+          type: integer
+          description: 用量或价格缺失、记为待核对的 attempt 数
+    BillingRecord:
+      type: object
+      required: [attemptId, operation, amount, billingStatus, isMock]
+      properties:
+        attemptId: { type: string }
+        submissionId: { type: string }
+        operation: { $ref: '#/components/schemas/Operation' }
+        modelConfigId: { type: [string, 'null'] }
+        inputUnits: { type: [integer, 'null'] }
+        outputUnits: { type: [integer, 'null'] }
+        amount: { type: [string, 'null'] }
+        currency: { type: string }
+        billingStatus: { $ref: '#/components/schemas/BillingStatus' }
+        isMock: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    BillingRecordList:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BillingRecord' }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+    BillingRecordPage: { $ref: '#/components/schemas/BillingRecordList' }
+    EstimateResult:
+      type: object
+      required: [currency, estimatedAmount, isMock, modelConfigId]
+      properties:
+        currency: { type: string }
+        estimatedAmount: { type: string }
+        isMock: { type: boolean }
+        modelConfigId: { type: [string, 'null'] }
+        unit: { type: string }
+        notes:
+          type: array
+          items: { type: string }
+          description: 例如「该档位规格尚未核验」
+
+    # ---------------------------------------------------------- imports
+    ImportResult:
+      type: object
+      required: [nodeId, kind, created]
+      properties:
+        nodeId: { type: string }
+        kind: { type: string }
+        created:
+          type: object
+          additionalProperties: true
+          description: 解析出的资产身份、图种或文档信息
+        references:
+          type: array
+          items: { $ref: '#/components/schemas/AssetReference' }
+        mediaItem:
+          oneOf:
+            - $ref: '#/components/schemas/MediaItem'
+            - type: 'null'
