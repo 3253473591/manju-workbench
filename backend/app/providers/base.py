@@ -93,3 +93,14 @@ class VideoProvider(ABC):
         seed: int = -1,
         product_label: str = "",
     ) -> MediaResult: ...
+
+    def resume(self, *, task_id: str, product_label: str = "") -> MediaResult:
+        """按**已存在**的供应商任务 ID 恢复查询与下载。
+
+        这是「供应商超时后不重复计费」的关键：恢复路径只允许查询既有任务，
+        绝不能重新提交。不支持恢复查询的适配器必须明确报不可用，而不是
+        悄悄再建一个任务。
+        """
+        raise ProviderUnavailable(
+            f"{self.name} 适配器不支持按任务 ID 恢复查询"
+        )

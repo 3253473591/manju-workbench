@@ -1,0 +1,58 @@
+# 漫剧工作台后端依赖 —— 已核验版本的完整锁定
+#
+# 这份文件由「后端 117 项用例全绿 + 前端构建通过 + alembic check 无漂移」的那台机器
+# 冻结而来（Python 3.13.9 / Windows），所有条目都是 `==` 精确版本：
+#
+#   python -m pip freeze --path backend\.pylibs
+#
+# 安装（工作区内 --target，不污染系统 Python；从仓库根目录执行）：
+#   python -m pip install --target backend\.pylibs -r backend\requirements.lock
+#
+# backend\requirements.txt 是「声明范围」，这份是「复现锁定」：
+#   - 想复现本文档记录的那组结论 → 用本文件；
+#   - 想升级依赖 → 改 requirements.txt，装完跑全量 pytest，再用上面的 freeze 命令
+#     重新生成本文件，并把新的验证结论写进 docs/acceptance.md。
+#
+# 平台说明：Windows 上 uvicorn[standard] 不装 uvloop，所以这里没有 uvloop 条目；
+# 在 Linux/macOS 上安装本文件会缺少 uvloop（uvicorn 仍可正常运行，只是少了性能优化）。
+alembic==1.20.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.1
+certifi==2026.7.22
+cffi==2.1.1
+click==8.5.0
+colorama==0.4.6
+cryptography==50.0.1
+fastapi==0.141.1
+greenlet==3.5.6
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+httpx==0.28.1
+idna==3.20
+iniconfig==2.3.0
+Mako==1.4.1
+MarkupSafe==3.0.3
+packaging==26.3
+pillow==12.3.0
+pluggy==1.6.0
+pycparser==3.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+Pygments==2.21.0
+PyMySQL==1.2.3
+pytest==9.1.1
+pytest-asyncio==1.4.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+PyYAML==6.0.3
+SQLAlchemy==2.0.54
+sqlmodel==0.0.42
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+uvicorn==0.53.0
+watchfiles==1.2.0
+websockets==17.1

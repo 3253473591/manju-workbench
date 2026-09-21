@@ -113,9 +113,46 @@ def current_prompt_version(db: Session, node: MediaNode) -> PromptVersion | None
     return versions[-1] if versions else None
 
 
+def prompt_owner_node(db: Session, node: MediaNode) -> MediaNode:
+    """提示词归属节点。
+
+    结果节点本身不拥有提示词：它的提示词属于产生它的方案。用户从结果节点继续
+    编辑/优化/抽卡时，写入的是**迭代方案**（若已建立），否则是来源方案。
+    PRD 要求结果节点可以继续编辑并生成下一版，这条链路靠这个归属关系接通。
+    """
+    if node.media_kind not in (MediaKind.image_result, MediaKind.video_result):
+        return node
+
+    rows = db.exec(
+        select(MediaNode).where(
+            MediaNode.episode_id == node.episode_id,
+            MediaNode.deleted_at.is_(None),  # type: ignore[union-attr]
+        )
+    ).all()
+    for candidate in rows:
+        if candidate.id == node.id:
+            continue
+        try:
+            params = json.loads(candidate.params_json or "{}")
+        except json.JSONDecodeError:
+            params = {}
+        if params.get("iterationPlanOf") == node.id:
+            return candidate
+
+    if node.prompt_version_id:
+        version = db.get(PromptVersion, node.prompt_version_id)
+        if version is not None:
+            owner = db.get(MediaNode, version.node_id)
+            if owner is not None:
+                return owner
+    return node
+
+
 def get_media_node_detail(db: Session, node_id: str) -> dict:
     node = get_media_node_or_404(db, node_id)
-    versions = list_prompt_versions(db, node.id)
+    # 版本列表总是来自提示词归属节点；结果节点据此看到自己所属方案的完整版本链。
+    owner = prompt_owner_node(db, node)
+    versions = list_prompt_versions(db, owner.id)
     current = current_prompt_version(db, node)
     media_item = db.get(MediaItem, node.media_item_id) if node.media_item_id else None
     source_item = db.get(MediaItem, node.source_media_id) if node.source_media_id else None
@@ -308,11 +345,13 @@ def update_media_node(db: Session, node_id: str, payload: dict) -> dict:
 
 def select_prompt_version(db: Session, node_id: str, version_id: str) -> dict:
     node = get_media_node_or_404(db, node_id)
+    # 结果节点的选版写在提示词归属节点上，否则选完对后续抽卡没有任何影响。
+    owner = prompt_owner_node(db, node)
     version = db.get(PromptVersion, version_id)
-    if version is None or version.node_id != node.id:
+    if version is None or version.node_id != owner.id:
         raise AppError("RESOURCE_NOT_FOUND", "提示词版本不存在")
-    node.prompt_version_id = version.id
-    db.add(node)
+    owner.prompt_version_id = version.id
+    db.add(owner)
     db.commit()
     return get_media_node_detail(db, node.id)
 

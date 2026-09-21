@@ -1,6 +1,10 @@
-# 漫剧工作台后端依赖
+# 漫剧工作台后端依赖（声明范围）
+#
+# 复现验证结论请用精确锁定的 backend\requirements.lock，不要用本文件——
+# 这里的 `>=` 会让不同日期 clone 装到不同组合。
 # 安装方式（工作区内 --target，避免写入系统 Python 目录）：
-#   python -m pip install --target backend\.pylibs -r backend\requirements.txt
+#   python -m pip install --target backend\.pylibs -r backend\requirements.lock
+# 本文件只在「要升级依赖」时使用：改完装一遍 → 跑全量 pytest → 重新 freeze 出 lock。
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30
 sqlmodel>=0.0.22

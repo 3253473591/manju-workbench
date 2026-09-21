@@ -309,6 +309,10 @@ def _render_png(prompt: str, width: int, height: int, seed: int) -> bytes:
 class MockVideoProvider(VideoProvider):
     name = "mock-video"
 
+    def __init__(self, *, on_accepted: Any = None) -> None:
+        #: 与真实适配器同签名：拿到任务 ID 立刻持久化，恢复轮询才不会重复提交
+        self.on_accepted = on_accepted
+
     def generate(
         self,
         *,
@@ -319,6 +323,41 @@ class MockVideoProvider(VideoProvider):
         ratio: str = "16:9",
         seed: int = -1,
         product_label: str = "",
+    ) -> MediaResult:
+        task_id = f"mock_task_{new_ulid()}"
+        if self.on_accepted is not None:
+            self.on_accepted(task_id)
+        return self._render(
+            prompt=prompt,
+            reference_images=reference_images,
+            duration_seconds=duration_seconds,
+            resolution=resolution,
+            ratio=ratio,
+            task_id=task_id,
+        )
+
+    def resume(self, *, task_id: str, product_label: str = "") -> MediaResult:
+        """mock 的任务恢复：不新造任务 ID，按传入 ID 产出产物。"""
+        return self._render(
+            prompt=task_id,
+            reference_images=[],
+            duration_seconds=1,
+            resolution="480p",
+            ratio="16:9",
+            task_id=task_id,
+            resumed=True,
+        )
+
+    def _render(
+        self,
+        *,
+        prompt: str,
+        reference_images: list[bytes],
+        duration_seconds: int,
+        resolution: str,
+        ratio: str,
+        task_id: str,
+        resumed: bool = False,
     ) -> MediaResult:
         width, height = {"480p": (854, 480), "720p": (1280, 720), "1080p": (1920, 1080)}.get(
             resolution, (1280, 720)
@@ -337,8 +376,15 @@ class MockVideoProvider(VideoProvider):
                 "completion_tokens": 21690 * duration,
             },
             provider_request_id=f"mock_req_{new_ulid()}",
+            provider_task_id=task_id,
             actual_model="mock-video-1",
-            raw_meta={"mock": True, "resolution": resolution, "ratio": ratio, "duration": duration},
+            raw_meta={
+                "mock": True,
+                "resolution": resolution,
+                "ratio": ratio,
+                "duration": duration,
+                "resumed": resumed,
+            },
         )
 
 

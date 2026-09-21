@@ -3,10 +3,66 @@
 对照 [PRD §9 验收](baseline/PRD.md) 逐条核对。**只写有证据的结论**：跑过的写通过，没跑过的写未验收，
 不用 mock 冒充 real。
 
-- 测试：`backend/tests/`，67 个用例全部通过（MySQL 8 实库）
-- 迁移：`alembic upgrade head` / `downgrade base` 往返通过，`alembic check` 零漂移
-- 契约：`docs/openapi.yaml`（54 路径 / 69 操作 / 95 schema）与服务端实际生成的一致
+需求追溯（PRD 条款 → 手册条款 → 代码入口 → 测试 → 证据）见
+[`requirements-traceability.md`](requirements-traceability.md)。
+
+**本文只写「在什么环境下、用哪条命令、跑出什么结果」**。结论都限定在这一组条件下，
+换环境（不同 `DATABASE_URL`、并发跑同一套测试、库没迁移完）都可能不成立。
+
+| 项 | 结论 | 复现命令 | 条件 |
+|---|---|---|---|
+| 后端测试 | **117 passed** | `python -m pytest`（见 §0 的环境要求） | MySQL 8；库名 `*_test`；单会话独占 |
+| 迁移往返 | `base → head` 通过 | `python -m alembic -c alembic.ini downgrade base && python -m alembic -c alembic.ini upgrade head` | 目标库为 `manju_director_test` |
+| 迁移漂移 | `No new upgrade operations detected` | `python -m alembic -c alembic.ini check` | 同上（对**迁移到 head 的库**跑；对遗留演示库跑会报历史漂移） |
+| 接口契约 | 55 路径 / 70 操作 / 95 schema 与服务端一致 | `python scripts/export_openapi.py` + `python scripts/validate_openapi.py` + `pytest tests/test_openapi_conformance.py` | 无外部依赖 |
+| 前端构建 | `tsc -b && vite build` 通过 | `cd frontend && npm run build` | 只证明可构建，不证明后端闭环 |
+| 并发运行 | 两个 pytest 会话同时跑同一测试库：串行化，各自全绿 | 见 §0.2 | 依赖会话级 `GET_LOCK` |
+
 - 截图：`docs/screenshots/`，由 `scripts/shot.py` 通过 Chrome CDP 抓取
+
+---
+
+## 0. 跑测试的环境要求（不满足会静默给出错误结论）
+
+### 0.1 测试库是强制指定的
+
+`backend/tests/conftest.py` **强制**把 `DATABASE_URL` 指到测试库（不再用 `setdefault`），
+因为用例会 `drop_all()` / `TRUNCATE` 目标库：
+
+- 想换库：设 `MANJU_TEST_DATABASE_URL`，**不要**靠 `DATABASE_URL`（那份是给应用跑的）；
+- 库名必须以 `_test` 结尾，否则直接拒绝运行（`pytest.exit`）——防止误伤演示库；
+- 迁移后校验表齐全，缺表立即报错，而不是等用例随机 500。
+
+```powershell
+# 当前目录：<仓库>/backend
+$env:MANJU_TEST_DATABASE_URL = "mysql+pymysql://<user>:<password>@127.0.0.1:3306/manju_director_test?charset=utf8mb4"
+$env:PYTHONPATH="$PWD\.pylibs;$PWD"
+$env:PYTHONUTF8='1'
+python -m pytest
+```
+
+> 不要再加 `-q`：`pytest.ini` 的 `addopts` 已经有 `-q`，再加一层会把结尾的 `117 passed` 汇总行压掉。
+
+版本与基础设施（Python 3.13.x / Node 24.x / MySQL 8.0 / ffmpeg）先用
+`python backend\scripts\check_env.py` 过一遍；依赖按 `backend/requirements.lock` 锁定安装。
+一条命令核对全部结论：`.\scripts\verify_clean_env.ps1`（见 [README §3](../README.md)）。
+
+> 之前的版本这里是 `os.environ.setdefault("DATABASE_URL", ...)`。只要你的 shell 里
+> 导出过 `DATABASE_URL`（例如刚在同一个窗口跑过后端），整轮测试就会悄悄打到**演示库**，
+> 而且和正在运行的 dev server 抢同一批表——表现是
+> `Table 'xxx.clips' doesn't exist`、`Table definition has changed`（MySQL 1412）、
+> `Deadlock found`，以及权限/项目/结果节点/reconciler/幂等等用例随机失败。
+> 这不是「用例不稳定」，是测试环境没隔离。
+
+### 0.2 并发跑同一套测试会被串行化
+
+`prepared_database` 会先取一把 MySQL 命名锁（`GET_LOCK`），整个会话持有，结束才释放：
+
+- 两个 pytest 会话同时跑 → 后者等待，前者跑完再开始（不再互相 TRUNCATE 与迁移）；
+- 等满 `1800s` 还没拿到锁 → 明确报错并提示换库，而不是继续跑出随机失败；
+- 进程被杀时 MySQL 会自动释放该连接上的锁，不会留下死锁。
+
+**不要**用 `DATABASE_URL` 指到演示库来「共享」测试数据。要看演示数据请在浏览器里看。
 
 ---
 
@@ -125,6 +181,28 @@
 **费用**：`usage_records` 记录真实用量，但单价未与方舟账单核对，
 因此状态为 `unknown`、金额为 `null`（**不是 0**）——0 会被误读成免费。
 
+
+---
+
+## 11. 可靠性回归（《2026-09-20 审查.md》P1）— mock 下可重复
+
+全部落在 `backend/tests/test_review_fixes.py`（18 条），按报告分节组织。
+前提是 §0 的环境要求成立（强制测试库 + 会话锁），否则这些结论不成立。
+
+| 场景 | 用例 | 断言要点 |
+|---|---|---|
+| 异常不收敛（任务永久 `running`） | `test_unhandled_exception_converges_to_failed_and_releases_lock` | 未捕获异常 → `failed` + `GENERATION_FAILED`，节点锁释放，同节点可重新发起 |
+| 报告点名的触发点 | `test_illegal_clip_no_from_model_fails_as_provider_rejected` | 模型返回 `clipNo="第三场"` → `PROVIDER_REJECTED`（不再退化成 GENERATION_FAILED） |
+| 租约回收 | `test_stale_lease_is_requeued_and_audited` | 过期 `running` → `pending`，`recoveryCount=1` 且写入 `recoveryReason` |
+| 在途任务不被回收 | `test_submission_with_inflight_provider_task_is_not_requeued` | 有 `provider_task_id` 时不回队，交给 reconciler，避免重复计费 |
+| 双 worker | `test_concurrent_workers_claim_one_pending_submission` | 两个线程并发 `run_pending`，同一个 `pending` 只被领取一次 |
+| 重复提交（幂等） | `test_video_plan_retry_reuses_plan_and_leaves_no_orphans` | 同 key 重放复用 submission 与方案，画布节点数不变，`frozenReferenceCount` 如实返回 |
+| 重复点击（节点锁） | `test_video_plan_second_click_is_blocked_by_clip_node_lock` | 不同 key 的第二次点击 409，且**不留下空方案或孤儿节点**；任务结束后锁释放 |
+| 供应商超时恢复 | `test_provider_timeout_keeps_attempt_reconcilable_and_recovers` | 超时后提交保持 `running`、`providerTaskId` 保留；reconciler 复查后交付成功、落盘可解码、attempt 仍只有一条 |
+| 供应商不可恢复 | `test_unrecoverable_provider_task_stops_retrying_without_resubmitting` | 有限次复查后 `PROVIDER_TASK_UNRESOLVED`，锁释放，**没有重建过供应商任务** |
+
+业务语义回归（报告 §三）同文件：绑定 revision、Clip 候选复制、剧本分支过滤、
+结果节点编辑/优化/抽卡、保存 B 与优化 attempt 分离、立绘派生源图。
 
 ---
 

@@ -298,33 +298,8 @@ class ArkVideoProvider(VideoProvider):
             if self.on_accepted is not None:
                 self.on_accepted(task_id)
 
-            deadline = time.monotonic() + settings.ARK_POLL_MAX_SECONDS
-            task_payload: dict[str, Any] = created_payload
-            while True:
-                status = str(task_payload.get("status", "")).lower()
-                if status == "succeeded":
-                    break
-                if status in {"failed", "cancelled", "expired"}:
-                    raise ProviderError(
-                        f"供应商任务结束于 {status}：{task_payload.get('error')}",
-                        code="PROVIDER_REJECTED",
-                    )
-                if time.monotonic() > deadline:
-                    raise ProviderError("等待供应商任务超时", code="PROVIDER_TIMEOUT_UNKNOWN")
-                time.sleep(settings.ARK_POLL_INTERVAL_SECONDS)
-                polled = client.get(
-                    f"/contents/generations/tasks/{task_id}",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                )
-                _raise_for_status(polled)
-                task_payload = polled.json()
-
-            video_url = (task_payload.get("content") or {}).get("video_url")
-            if not video_url:
-                raise ProviderError("任务成功但没有 video_url", code="DELIVERY_FAILED")
-            download = client.get(video_url)
-            download.raise_for_status()
-            data = download.content
+            task_payload = self._poll(client, task_id, api_key)
+            data = self._download(client, task_payload)
 
         usage = task_payload.get("usage") or {}
         return MediaResult(
@@ -337,3 +312,54 @@ class ArkVideoProvider(VideoProvider):
             actual_model=task_payload.get("model", ""),
             raw_meta={"status": task_payload.get("status"), "usage": usage},
         )
+
+    def resume(self, *, task_id: str, product_label: str = "") -> MediaResult:
+        """只查询既有任务并下载产物，绝不新建任务、绝不重复计费。"""
+        api_key = resolve_credential(self.credential_ref)
+        with _client() as client:
+            task_payload = self._poll(client, task_id, api_key)
+            data = self._download(client, task_payload)
+        usage = task_payload.get("usage") or {}
+        return MediaResult(
+            data=data,
+            mime_type="video/mp4",
+            suffix=".mp4",
+            usage=usage,
+            provider_request_id="",
+            provider_task_id=task_id,
+            actual_model=task_payload.get("model", ""),
+            raw_meta={"status": task_payload.get("status"), "usage": usage, "resumed": True},
+        )
+
+    @staticmethod
+    def _poll(client: httpx.Client, task_id: str, api_key: str) -> dict[str, Any]:
+        deadline = time.monotonic() + settings.ARK_POLL_MAX_SECONDS
+        task_payload: dict[str, Any] = {}
+        while True:
+            polled = client.get(
+                f"/contents/generations/tasks/{task_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            _raise_for_status(polled)
+            task_payload = polled.json()
+            status = str(task_payload.get("status", "")).lower()
+            if status == "succeeded":
+                return task_payload
+            if status in {"failed", "cancelled", "expired"}:
+                raise ProviderError(
+                    f"供应商任务结束于 {status}：{task_payload.get('error')}",
+                    code="PROVIDER_REJECTED",
+                )
+            if time.monotonic() > deadline:
+                # 任务仍然存在，只是还没出结果：保留 unknown 让 reconciler 继续复查
+                raise ProviderError("等待供应商任务超时", code="PROVIDER_TIMEOUT_UNKNOWN")
+            time.sleep(settings.ARK_POLL_INTERVAL_SECONDS)
+
+    @staticmethod
+    def _download(client: httpx.Client, task_payload: dict[str, Any]) -> bytes:
+        video_url = (task_payload.get("content") or {}).get("video_url")
+        if not video_url:
+            raise ProviderError("任务成功但没有 video_url", code="DELIVERY_FAILED")
+        download = client.get(video_url)
+        download.raise_for_status()
+        return download.content

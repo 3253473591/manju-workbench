@@ -27,11 +27,13 @@ from app.models.enums import (
     MediaKind,
     MediaType,
     Operation,
+    PhysicalStatus,
     PromptSource,
 )
-from app.models.generation import GenerationSubmission
+from app.models.generation import GenerationAttempt, GenerationSubmission
 from app.models.media import MediaItem, MediaNode
-from app.providers.base import ProviderError
+from app.models.model_config import ModelConfig
+from app.providers.base import MediaResult, ProviderError
 from app.services import (
     canvas_service,
     clip_service,
@@ -337,6 +339,9 @@ def handle_image_draw(db: Session, submission: GenerationSubmission) -> None:
                 "seed": attempt_seed,
                 "size": size,
                 "index": index,
+                # 结果节点继续迭代时的来源链：来源结果、来源 prompt version 与
+                # 冻结参考图快照都在方案 params 上，原样记进 attempt 快照。
+                **_lineage_snapshot(plan),
             },
             fingerprint=hash_text(f"{final_input}|{attempt_seed}|{size}"),
             model_config=model_config,
@@ -455,9 +460,13 @@ def handle_image_derive(db: Session, submission: GenerationSubmission) -> None:
     if str(params.get("preset") or "") not in {"portrait", ""}:
         raise AppError("BUSINESS_RULE_VIOLATION", "联合派生仅对立绘结果开放")
 
-    source_item = db.get(MediaItem, portrait.source_media_id) if portrait.source_media_id else None
-    if source_item is None and portrait.media_item_id:
-        source_item = db.get(MediaItem, portrait.media_item_id)
+    # The user explicitly invoked derive on the currently selected result.
+    # `source_media_id` is the immutable provenance of a result and must not
+    # override that selection (otherwise deriving after a re-draw uses an old
+    # image). Keep both IDs in the attempt snapshot below.
+    source_item = db.get(MediaItem, portrait.media_item_id) if portrait.media_item_id else None
+    if source_item is None and portrait.source_media_id:
+        source_item = db.get(MediaItem, portrait.source_media_id)
     if source_item is None:
         raise AppError("BUSINESS_RULE_VIOLATION", "立绘结果缺少可用源图")
 
@@ -482,6 +491,7 @@ def handle_image_derive(db: Session, submission: GenerationSubmission) -> None:
             input_snapshot={
                 "sourceMediaNodeId": portrait.id,
                 "sourceMediaId": source_item.id,
+                "provenanceMediaId": portrait.source_media_id,
                 "sourceSha256": source_item.sha256,
                 "templateKind": kind,
                 "templateVersion": "derive-v1",
@@ -571,6 +581,156 @@ def handle_image_derive(db: Session, submission: GenerationSubmission) -> None:
 
     generation_service.update_payload(submission, producedNodeIds=produced)
     db.commit()
+
+
+def _video_attempt_failure(
+    db: Session, attempt: GenerationAttempt, exc: ProviderError
+) -> None:
+    """视频 attempt 失败收敛。
+
+    如果任务**已经提交给供应商**（`provider_task_id` 已落库），失败的只是这次
+    等待/下载，不是这次调用。此时绝不能把 attempt 标成 `failed`：那会抹掉唯一的
+    恢复线索，让 reconciler 无从复查，用户重试又会新建一次收费任务。
+    """
+    if attempt.provider_task_id:
+        generation_service.finish_attempt_failure(
+            db,
+            attempt,
+            code=exc.code,
+            message=exc.message,
+            physical_status=PhysicalStatus.unknown,
+        )
+    else:
+        generation_service.finish_attempt_failure(
+            db, attempt, code=exc.code, message=exc.message
+        )
+    db.commit()
+
+
+def deliver_video_result(
+    db: Session,
+    submission: GenerationSubmission | None,
+    *,
+    plan: MediaNode,
+    attempt: GenerationAttempt,
+    result: MediaResult,
+    duration_seconds: int,
+    resolution: str,
+    index: int,
+    model_config: ModelConfig | None = None,
+) -> str | None:
+    """落地一次视频产物：媒体落盘 → 结果节点 → attempt 交付核验 → 画布连线。
+
+    抽卡与供应商任务恢复共用这一条路径，保证「恢复出来的结果」和「当场拿到的
+    结果」在交付核验、费用与画布关系上完全一致。
+    """
+    context = _frozen_context(db, plan)
+    clip_info = context.get("clip", {})
+    references = context.get("references", [])
+    prompt_version = media_service.current_prompt_version(db, plan)
+    prompt_version_id = (
+        prompt_version.id
+        if prompt_version is not None
+        else _snapshot_prompt_version_id(attempt)
+    )
+
+    item = media_store.register_media_item(
+        db,
+        data=result.data,
+        media_type=MediaType.video,
+        suffix=result.suffix,
+        mime_type=result.mime_type,
+        created_by=submission.created_by if submission else None,
+        parsed_name=clip_info.get("title") or "",
+    )
+    result_node = media_service.create_result_node(
+        db,
+        episode_id=plan.episode_id,
+        media_kind=MediaKind.video_result,
+        clip_id=plan.clip_id,
+        source_media_id=None,
+        prompt_version_id=prompt_version_id,
+        title=f"{clip_info.get('title') or 'Clip'} · 视频结果",
+        seed=int(_snapshot_value(attempt, "seed", -1) or -1),
+        params={
+            "resolution": resolution,
+            "durationSeconds": duration_seconds,
+            "frozenReferenceCount": len(references),
+        },
+    )
+    result_node.media_item_id = item.id
+    db.add(result_node)
+    db.flush()
+
+    generation_service.finish_attempt_success(
+        db,
+        attempt,
+        provider_request_id=result.provider_request_id,
+        provider_task_id=result.provider_task_id,
+        raw_meta=result.raw_meta,
+        usage={
+            **result.usage,
+            "duration_seconds": duration_seconds,
+            "reference_images": len(references),
+            "resolution": resolution,
+        },
+        usage_context={
+            "resolution": str(resolution),
+            # 本版只发参考图，不发参考视频，因此按「不含视频输入」计价
+            "includes_video_input": False,
+        },
+        model_config=model_config,
+    )
+    generation_service.mark_model_verified(db, attempt, result.actual_model)
+    generation_service.record_delivery(
+        db,
+        attempt,
+        file_key=item.file_key,
+        sha256=item.sha256,
+        decode_status=item.decode_status.value,
+        width=item.width,
+        height=item.height,
+        duration_ms=item.duration_ms,
+        thumbnail_file_key=media_store.thumbnail_key_for(item.file_key),
+        delivery_status=(
+            DeliveryStatus.verified
+            if item.decode_status.value == "verified"
+            else DeliveryStatus.failed
+        ),
+    )
+    generation_service.link_attempt(db, attempt, AttemptTarget.media_node, result_node.id)
+    return _attach_result_node(db, plan=plan, result_node=result_node, index=index)
+
+
+def _snapshot(attempt: GenerationAttempt) -> dict:
+    try:
+        return json.loads(attempt.input_snapshot_json or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+
+def _snapshot_value(attempt: GenerationAttempt, key: str, default: object = None) -> object:
+    return _snapshot(attempt).get(key, default)
+
+
+def _snapshot_prompt_version_id(attempt: GenerationAttempt) -> str | None:
+    value = _snapshot_value(attempt, "promptVersionId")
+    return str(value) if value else None
+
+
+#: 结果节点继续迭代时，方案 params 上携带的来源链字段。
+LINEAGE_KEYS = (
+    "sourceResultNodeId",
+    "sourceMediaItemId",
+    "sourcePromptVersionId",
+    "sourceSeed",
+    "iterationPlanOf",
+)
+
+
+def _lineage_snapshot(plan: MediaNode) -> dict:
+    params = _params(plan)
+    return {key: params[key] for key in LINEAGE_KEYS if params.get(key) is not None}
 
 
 # --- 视频 ---------------------------------------------------------------
@@ -800,6 +960,7 @@ def handle_video_draw(db: Session, submission: GenerationSubmission) -> None:
                 "resolution": resolution,
                 "seed": attempt_seed,
                 "index": index,
+                **_lineage_snapshot(plan),
             },
             fingerprint=hash_text(f"{prompt_version.final_input_hash}|{attempt_seed}|{resolution}"),
             model_config=model_config,
@@ -819,80 +980,20 @@ def handle_video_draw(db: Session, submission: GenerationSubmission) -> None:
                 product_label=_product(submission, "mini"),
             )
         except ProviderError as exc:
-            generation_service.finish_attempt_failure(
-                db, attempt, code=exc.code, message=exc.message
-            )
-            db.commit()
+            _video_attempt_failure(db, attempt, exc)
             raise
 
-        item = media_store.register_media_item(
+        canvas_id = deliver_video_result(
             db,
-            data=result.data,
-            media_type=MediaType.video,
-            suffix=result.suffix,
-            mime_type=result.mime_type,
-            created_by=submission.created_by,
-            parsed_name=clip_info.get("title") or "",
-        )
-        result_node = media_service.create_result_node(
-            db,
-            episode_id=plan.episode_id,
-            media_kind=MediaKind.video_result,
-            clip_id=plan.clip_id,
-            source_media_id=None,
-            prompt_version_id=prompt_version.id,
-            title=f"{clip_info.get('title') or 'Clip'} · 视频结果",
-            seed=attempt_seed,
-            params={
-                "resolution": resolution,
-                "durationSeconds": duration_seconds,
-                "frozenReferenceCount": len(references),
-            },
-        )
-        result_node.media_item_id = item.id
-        db.add(result_node)
-        db.flush()
-
-        generation_service.finish_attempt_success(
-            db,
-            attempt,
-            provider_request_id=result.provider_request_id,
-            provider_task_id=result.provider_task_id,
-            raw_meta=result.raw_meta,
-            # 供应商回执里不一定有时长，这里把本次请求的时长一并记进用量，
-            # 否则按秒计价时算不出金额，只能记「未知」。
-            usage={
-                **result.usage,
-                "duration_seconds": duration_seconds,
-                "reference_images": len(reference_images),
-                "resolution": resolution,
-            },
-            usage_context={
-                "resolution": resolution,
-                # 本版只发参考图，不发参考视频，因此按「不含视频输入」计价
-                "includes_video_input": False,
-            },
+            submission,
+            plan=plan,
+            attempt=attempt,
+            result=result,
+            duration_seconds=duration_seconds,
+            resolution=resolution,
+            index=index,
             model_config=model_config,
         )
-        generation_service.mark_model_verified(db, attempt, result.actual_model)
-        generation_service.record_delivery(
-            db,
-            attempt,
-            file_key=item.file_key,
-            sha256=item.sha256,
-            decode_status=item.decode_status.value,
-            width=item.width,
-            height=item.height,
-            duration_ms=item.duration_ms,
-            thumbnail_file_key=media_store.thumbnail_key_for(item.file_key),
-            delivery_status=(
-                DeliveryStatus.verified
-                if item.decode_status.value == "verified"
-                else DeliveryStatus.failed
-            ),
-        )
-        generation_service.link_attempt(db, attempt, AttemptTarget.media_node, result_node.id)
-        canvas_id = _attach_result_node(db, plan=plan, result_node=result_node, index=index)
         if canvas_id:
             produced.append(canvas_id)
         db.commit()

@@ -48,11 +48,17 @@ def _sa_enum(enum_cls: type[Enum], *, length: int) -> SAEnum:
     )
 
 
-def enum_field(enum_cls: type[Enum], default: Enum, *, length: int = 32):
-    """把枚举落成 VARCHAR 而不是数据库原生 ENUM，便于迁移与跨库。"""
+def enum_field(enum_cls: type[Enum], default: Enum, *, length: int = 32, index: bool = False):
+    """把枚举落成 VARCHAR 而不是数据库原生 ENUM，便于迁移与跨库。
+
+    `index=True` 用于高频过滤列（例如 `generation_submissions.logical_status`）：
+    没有索引时按状态过滤会扫全表，在建表锁上会放大间隙锁范围，多 worker 下更容易死锁。
+    """
     return Field(
         default=default,
-        sa_column=Column(_sa_enum(enum_cls, length=length), nullable=False),
+        sa_column=Column(
+            _sa_enum(enum_cls, length=length), nullable=False, index=index
+        ),
     )
 
 

@@ -1,25 +1,45 @@
-# 密钥：唯一允许落盘的位置，绝不入库
+# 入库判定：只提交「源码 / 契约 / 文档 / 锁文件」。
+# 下面四类一律不入库：密钥、依赖目录、构建与运行期产物、编辑器/系统垃圾。
+# 判定标准只有一条：**换台机器 clone 之后重新生成得出来的东西，就不该入库**。
+
+# --- 1. 密钥：唯一允许落盘的位置是本地 .env / 环境变量 -------------------
+# 示例文件必须留在库里，所以下面用 ! 反选回来，顺序不能颠倒。
 .env
 .env.local
+.env.*
+!.env.example
 *.env.local
 
-# Python
-__pycache__/
-*.py[cod]
+# --- 2. 依赖目录：按 backend\requirements.lock 与 npm ci 重装即可 --------
+# backend/.pylibs 是 --target 安装目录；node_modules 由 package-lock.json 复现。
 backend/.pylibs/
 backend/.venv/
-.pytest_cache/
-
-# Node
+.venv/
 node_modules/
+
+# --- 3. 构建产物：由源码重新生成 ----------------------------------------
+# 前端产物与增量缓存（tsc -b 的 *.tsbuildinfo 会落在 frontend/ 下）
 frontend/dist/
 frontend/.vite/
+*.tsbuildinfo
 
-# 运行期产物
+# --- 4. 运行期与测试产物 ------------------------------------------------
+# var/ 是 MEDIA_ROOT（落盘图片与视频）；.cache/ 是 pip 等工具的缓存。
 var/
 .cache/
+# pytest：缓存目录 + basetemp 临时目录（pytest 会在调用目录建 pytest-cache-files-*）
+.pytest_cache/
+pytest-cache-files-*/
+# Python 字节码
+__pycache__/
+*.py[cod]
+# 静态检查工具缓存
+.ruff_cache/
+.mypy_cache/
 
-# 编辑器
+# --- 5. 编辑器与系统垃圾 ------------------------------------------------
 .vscode/
 .idea/
 *.log
+.DS_Store
+Thumbs.db

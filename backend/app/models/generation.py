@@ -30,13 +30,16 @@ class GenerationSubmission(TimestampMixin, table=True):
     submission_key: str = Field(max_length=128, unique=True, index=True, nullable=False)
     operation: Operation = enum_field(Operation, Operation.outline_optimize, length=32)
     logical_status: LogicalStatus = enum_field(
-        LogicalStatus, LogicalStatus.pending, length=16
+        LogicalStatus, LogicalStatus.pending, length=16, index=True
     )
     requested_count: int = Field(default=1)
     episode_id: Optional[str] = Field(default=None, max_length=26, index=True)
     target_type: Optional[str] = Field(default=None, max_length=32)
     target_id: Optional[str] = Field(default=None, max_length=26, index=True)
     node_id: Optional[str] = Field(default=None, max_length=26, index=True)
+    #: 节点级生成锁的稳定键。它必须由调用方显式给出，不能拿「本次刚创建的
+    #: 画布节点」当锁——那样重复点击会各自拿到新键，锁形同虚设。
+    lock_key: Optional[str] = Field(default=None, max_length=26, index=True)
     created_by: Optional[str] = Field(default=None, max_length=26)
     request_id: str = Field(default="", max_length=64)
     #: 冻结的本次需求与上下文摘要（不含密钥、不含隐藏 A 正文以外的敏感值）
@@ -44,6 +47,12 @@ class GenerationSubmission(TimestampMixin, table=True):
     error_code: str = Field(default="", max_length=64)
     error_message: str = Field(default="")
     finished_at: Optional[datetime] = Field(default=None)
+    # worker lease / crash recovery
+    claimed_at: Optional[datetime] = Field(default=None, index=True)
+    claimed_by: str = Field(default="", max_length=128)
+    heartbeat_at: Optional[datetime] = Field(default=None, index=True)
+    recovery_count: int = Field(default=0, nullable=False)
+    recovery_reason: str = Field(default="")
 
 
 class GenerationAttempt(TimestampMixin, table=True):
@@ -79,6 +88,11 @@ class GenerationAttempt(TimestampMixin, table=True):
     error_message: str = Field(default="")
     is_mock: bool = Field(default=False)
     finished_at: Optional[datetime] = Field(default=None)
+    # --- 供应商任务恢复（reconciler）-------------------------------------
+    #: accepted / running / unknown 且带 provider_task_id 的 attempt 由 reconciler
+    #: 按任务 ID 复查，绝不允许重新提交一次收费任务。
+    reconcile_count: int = Field(default=0, nullable=False)
+    last_reconciled_at: Optional[datetime] = Field(default=None, index=True)
 
 
 class DeliveryRecord(TimestampMixin, table=True):

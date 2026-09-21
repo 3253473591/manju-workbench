@@ -148,7 +148,8 @@ def resolve_video_provider(
     on_accepted=None,  # type: ignore[no-untyped-def]
 ) -> tuple[VideoProvider, ModelConfig | None]:
     if settings.is_mock:
-        return MockVideoProvider(), None
+        # mock 也走 on_accepted：任务 ID 落库、按 ID 恢复的路径必须在 mock 下可测。
+        return MockVideoProvider(on_accepted=on_accepted), None
     label = product_label_for(ProviderCapability.video, product_label or "mini")
     config = find_model_config(
         db, ProviderCapability.video, product_label=label, config_id=model_config_id

@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # --- 后台 worker ----------------------------------------------------
     WORKER_ENABLED: bool = True
     WORKER_INTERVAL_SECONDS: float = 1.0
+    # A lease prevents a crashed worker from permanently locking a node.
+    GENERATION_LEASE_SECONDS: int = 1800
+    # 供应商任务恢复：accepted/running/unknown 的 attempt 按 provider_task_id 复查。
+    # 复查间隔与最大次数共同保证「不重复计费」且「不会永久卡住」。
+    GENERATION_RECONCILE_INTERVAL_SECONDS: int = 30
+    GENERATION_RECONCILE_MAX_ATTEMPTS: int = 20
 
     # --- 火山方舟（只接官方）--------------------------------------------
     ARK_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"

@@ -308,13 +308,21 @@ def delete_node(db: Session, node_id: str) -> None:
 
 
 def create_edge(
-    db: Session, episode_id: str, payload: dict, *, enforce_stage_rule: bool = True
+    db: Session,
+    episode_id: str,
+    payload: dict,
+    *,
+    enforce_stage_rule: bool = True,
+    commit: bool = True,
 ) -> dict:
     """建立依赖边。
 
     `enforce_stage_rule=True` 只用于**用户手动拖线**：同级或下一阶段，视频不手动同级拖线。
     专用按钮与自动抽卡产生的关系（Clip → 视频方案、方案 → 结果）不受该限制，
     调用方需要显式传 False（PRD §7）。
+
+    `commit=False` 供「创建节点 + 建边 + 建 submission」必须同事务的调用方使用：
+    边自己 commit 会把前面的半成品一起落库，失败回滚就成了空话。
     """
     from_node = get_node_or_404(db, payload["fromNodeId"])
     to_node = get_node_or_404(db, payload["toNodeId"])
@@ -347,8 +355,11 @@ def create_edge(
         note=payload.get("note") or "",
     )
     db.add(edge)
-    db.commit()
-    db.refresh(edge)
+    if commit:
+        db.commit()
+        db.refresh(edge)
+    else:
+        db.flush()
     return {"edge": edge_out(edge)}
 
 

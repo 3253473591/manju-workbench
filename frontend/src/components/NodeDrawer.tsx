@@ -505,21 +505,22 @@ export default function NodeDrawer({ episodeId, detail, onChanged }: Props) {
 
             <div className="drawer-section-label">
               方案描述（可见 B） · {mediaDetail.promptVersions.length} 个版本
+              {mediaKind?.endsWith('result') ? ' · 来自所属方案' : ''}
             </div>
             <Input.TextArea
               rows={5}
               value={promptDraft}
               onChange={(event) => setPromptDraft(event.target.value)}
-              disabled={!editable || mediaKind?.endsWith('result')}
+              disabled={!editable}
               placeholder="用户可见、可编辑的描述"
             />
             <Space style={{ marginTop: 10 }} wrap>
               <Button
                 onClick={() => savePrompt.mutate()}
-                disabled={!editable || mediaKind?.endsWith('result')}
+                disabled={!editable}
                 loading={savePrompt.isPending}
               >
-                保存方案版本
+                {mediaKind?.endsWith('result') ? '保存到迭代方案' : '保存方案版本'}
               </Button>
               <Select
                 style={{ width: 160 }}
@@ -539,6 +540,9 @@ export default function NodeDrawer({ episodeId, detail, onChanged }: Props) {
             </Space>
             <div className="hint" style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
               服务端隐藏预设 A 与完整内部组装文本不会通过任何接口返回。
+              {mediaKind?.endsWith('result')
+                ? ' 结果节点会为本次迭代复用同一个方案节点，重复点击不会新建。'
+                : ''}
             </div>
 
             {promptWarnings.length > 0 && (
@@ -584,7 +588,7 @@ export default function NodeDrawer({ episodeId, detail, onChanged }: Props) {
               </div>
             )}
 
-            {(mediaKind === 'image_plan' || mediaKind === 'video_plan') && (
+            {(mediaKind === 'image_plan' || mediaKind === 'video_plan' || mediaKind === 'image_result' || mediaKind === 'video_result') && (
               <>
                 <Divider />
                 <div className="drawer-section-label">抽卡</div>
@@ -622,6 +626,20 @@ export default function NodeDrawer({ episodeId, detail, onChanged }: Props) {
                   }
                 >
                   {busy ? '任务进行中…' : '抽卡出片'}
+                </Button>
+                <Button
+                  block
+                  style={{ marginTop: 8 }}
+                  disabled={!editable || busy}
+                  onClick={() =>
+                    runAction.mutate({
+                      path: `/media-nodes/${mediaDetail.mediaNode.id}/prompt-optimize`,
+                      body: { requirement },
+                      key: 'prompt-optimize',
+                    })
+                  }
+                >
+                  优化当前提示词
                 </Button>
               </>
             )}

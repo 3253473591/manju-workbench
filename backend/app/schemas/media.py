@@ -90,6 +90,7 @@ class DrawRequest(ApiModel):
     seed: int = -1
     modelConfigId: str | None = None
     productLabel: str | None = None
+    requirement: str = ""
 
 
 class CreateAssetImagePlanRequest(ApiModel):

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.errors import AppError
 from app.core.utils import to_iso, utcnow
@@ -266,22 +266,76 @@ def _sync_character_profiles(
     db.flush()
 
 
-def _episode_character_names(db: Session, episode_id: str) -> list[str]:
+def _episode_character_names(
+    db: Session, episode_id: str, *, setting_document_id: str | None = None
+) -> list[str]:
     """从人物设定投影里取角色名。
 
     这才是角色名的**权威来源**：不要去猜正文里哪一行像人名——正文里可能有标题、旁白或台词，
     用「第一个短行」当人名会得到「你终于回来了。」这种荒唐结果。
+
+    `setting_document_id` 用于按剧本分支严格过滤：同一集可能有多个剧本分支
+    （A/B），人物设定必须取当前剧本绑定的那一份，不能把别的分支的人名混进来。
     """
     from sqlmodel import select
 
     from app.models.content import CharacterProfile
 
-    rows = db.exec(
-        select(CharacterProfile)
-        .where(CharacterProfile.episode_id == episode_id)
-        .order_by(CharacterProfile.created_at)
-    ).all()
+    statement = select(CharacterProfile).where(CharacterProfile.episode_id == episode_id)
+    if setting_document_id:
+        statement = statement.where(CharacterProfile.document_id == setting_document_id)
+    rows = db.exec(statement.order_by(CharacterProfile.created_at)).all()
     return [row.name for row in rows if row.name]
+
+
+def _bound_setting_document(
+    db: Session, script: ContentDocument
+) -> ContentDocument | None:
+    """按剧本**绑定的** setting revision 解析人物设定文档。
+
+    PRD §4 要求剧本与 Clip 继承生成时绑定的人物设定版本。绑定版本不存在时明确
+    报错，绝不静默回退到「当前最新版本」——那样历史生成结果就无法复现了。
+    """
+    if not script.bound_setting_revision_id:
+        return None
+    revision = db.get(content_service.ContentRevision, script.bound_setting_revision_id)
+    if revision is None:
+        raise AppError(
+            "BUSINESS_RULE_VIOLATION",
+            "剧本绑定的人物设定版本已不存在，无法继续该分支的生成",
+            details={"settingRevisionId": script.bound_setting_revision_id},
+        )
+    return db.get(ContentDocument, revision.document_id)
+
+
+def _script_branch_clips(db: Session, script: ContentDocument) -> list[Clip]:
+    """当前剧本分支的未屏蔽 Clip。
+
+    Clip 的归属靠 `document_id`（拆分时写入）+ 该剧本的历史 revision 判定：
+    A、B 两个剧本同时存在时，从 A 发起规划绝不能混入 B 的 Clip 与场景。
+    """
+    from app.services import clip_service
+
+    revision_ids = {
+        row.id
+        for row in db.exec(
+            select(content_service.ContentRevision).where(
+                content_service.ContentRevision.document_id == script.id
+            )
+        ).all()
+    }
+    branches: list[Clip] = []
+    for clip in clip_service.list_clips(db, script.episode_id):
+        if _clip_hidden(db, clip.id):
+            continue
+        if clip.document_id is not None:
+            if clip.document_id == script.id:
+                branches.append(clip)
+            continue
+        # 历史数据没有 document_id：只能按来源 revision 归属。
+        if clip.source_revision_id and clip.source_revision_id in revision_ids:
+            branches.append(clip)
+    return branches
 
 
 def _render_setting(characters: list[dict]) -> str:
@@ -469,25 +523,43 @@ def handle_script_split_clips(db: Session, submission: GenerationSubmission) -> 
         raise AppError("BUSINESS_RULE_VIOLATION", "分镜只能从剧本文档拆分")
     _require_saved(script, "请先保存剧本，再拆分分镜")
 
+    # 剧本绑定的是**不可变**的人物设定版本。这里绝不能读设定草稿（当前最新版），
+    # 否则 V1 剧本会在设定更新到 V2 后静默用 V2 发送，而 input snapshot 仍记 V1。
+    bound_setting = _bound_setting_document(db, script)
+    bound_setting_body = ""
+    if bound_setting is not None:
+        bound_revision = db.get(
+            content_service.ContentRevision, script.bound_setting_revision_id
+        )
+        # 绑定版本缺失时 _bound_setting_document 已经报错；这里取的是该版本的正文。
+        bound_setting_body = bound_revision.body if bound_revision else ""
+
     payload, attempt = generation_service.call_text(
         db,
         submission,
         system_key="script_split_clips",
         user_prompt=(
-            f"【剧本正文】\n{script.body}\n\n【人物设定】\n"
-            f"{(content_service.find_setting_document(db, script.episode_id).body if content_service.find_setting_document(db, script.episode_id) else '')}"
+            f"【剧本正文】\n{script.body}\n\n【人物设定】\n{bound_setting_body}"
         ),
         expect="clips",
         input_snapshot={
             "scriptDocumentId": script.id,
             "scriptRevisionId": script.current_revision_id,
+            "settingDocumentId": bound_setting.id if bound_setting else None,
             "settingRevisionId": script.bound_setting_revision_id,
         },
         context={
             "clipCount": 3,
             "location": "雨夜校门",
             # 角色名来自设定投影；没有设定时留空，让模型/模板自己决定
-            "subject": (_episode_character_names(db, script.episode_id) or [""])[0],
+            "subject": (
+                _episode_character_names(
+                    db,
+                    script.episode_id,
+                    setting_document_id=bound_setting.id if bound_setting else None,
+                )
+                or [""]
+            )[0],
         },
         target_type=AttemptTarget.document,
         target_id=script.id,
@@ -503,14 +575,19 @@ def handle_script_split_clips(db: Session, submission: GenerationSubmission) -> 
     existing_max = _max_clip_no(db, script.episode_id)
 
     for offset, entry in enumerate(clips_payload):
-        clip_no = int(entry.get("clipNo") or (existing_max + offset + 1))
+        # 模型返回非法 clipNo（实测出现过 "第三场"、null、对象）时不能抛裸 ValueError：
+        # 那会把任务打成 GENERATION_FAILED，丢失「供应商内容不合规」这个真实原因。
+        clip_no = _safe_int(
+            entry.get("clipNo"), existing_max + offset + 1, field="clipNo", index=offset
+        )
         clip = Clip(
             episode_id=script.episode_id,
-            document_id=None,
+            # 归属当前剧本分支：A/B 剧本同时存在时靠它区分，不靠猜 revision。
+            document_id=script.id,
             source_revision_id=script.current_revision_id,
             clip_no=clip_no,
             title=str(entry.get("title") or f"CLIP {clip_no:02d}"),
-            duration_ms=int(entry.get("durationMs") or 5000),
+            duration_ms=_safe_int(entry.get("durationMs"), 5000, field="durationMs", index=offset),
             characters_json=json.dumps(entry.get("characters") or [], ensure_ascii=False),
             location_name=str(entry.get("locationName") or ""),
             status="ready",
@@ -523,9 +600,9 @@ def handle_script_split_clips(db: Session, submission: GenerationSubmission) -> 
             db.add(
                 ClipShot(
                     clip_id=clip.id,
-                    shot_no=int(shot.get("shotNo") or shot_index + 1),
-                    start_ms=int(shot.get("startMs") or 0),
-                    end_ms=int(shot.get("endMs") or 0),
+                    shot_no=_safe_int(shot.get("shotNo"), shot_index + 1, field="shotNo", index=offset),
+                    start_ms=_safe_int(shot.get("startMs"), 0, field="startMs", index=offset),
+                    end_ms=_safe_int(shot.get("endMs"), 0, field="endMs", index=offset),
                     visual_text=str(shot.get("visualText") or ""),
                     camera_text=str(shot.get("cameraText") or ""),
                     dialogue_text=str(shot.get("dialogueText") or ""),
@@ -560,12 +637,33 @@ def handle_script_split_clips(db: Session, submission: GenerationSubmission) -> 
     db.commit()
 
 
+def _safe_int(value: object, default: int, *, field: str, index: int) -> int:
+    """模型给的数字字段必须先校验再转换。
+
+    规范化在这里，而不是靠调用点的裸 `int()`：后者会把「模型乱填字段」这种
+    供应商内容问题变成 ValueError → GENERATION_FAILED，丢失真实失败原因。
+    """
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise AppError(
+            "PROVIDER_REJECTED",
+            f"模型返回的 {field} 不是整数：{value!r}",
+            details={"field": field, "value": str(value), "index": index},
+        ) from exc
+
+
 def _render_clip_body(entry: dict) -> str:
     lines = [f"场景：{entry.get('locationName') or ''}"]
     for shot in entry.get("shots") or []:
+        # 渲染正文时同样不能因为模型乱填时间戳而抛裸异常
+        start_ms = _safe_int(shot.get("startMs"), 0, field="startMs", index=0)
+        end_ms = _safe_int(shot.get("endMs"), 0, field="endMs", index=0)
         lines.append(
             f"镜头 {shot.get('shotNo')}"
-            f"（{int(shot.get('startMs') or 0) / 1000:.1f}-{int(shot.get('endMs') or 0) / 1000:.1f}秒）"
+            f"（{start_ms / 1000:.1f}-{end_ms / 1000:.1f}秒）"
         )
         lines.append(f"  画面与动作：{shot.get('visualText') or ''}")
         lines.append(f"  景别与运镜：{shot.get('cameraText') or ''}")
@@ -620,6 +718,7 @@ def handle_clip_optimize(db: Session, submission: GenerationSubmission) -> None:
         body = str(payload.get("body") or clip.body)
         candidate = Clip(
             episode_id=clip.episode_id,
+            document_id=clip.document_id,
             source_revision_id=clip.source_revision_id,
             clip_no=clip.clip_no,
             title=str(payload.get("title") or clip.title),
@@ -630,6 +729,39 @@ def handle_clip_optimize(db: Session, submission: GenerationSubmission) -> None:
             body=body,
         )
         db.add(candidate)
+        db.flush()
+
+        # Optimization candidates inherit the complete structured Clip
+        # context. Copying only body/title made the candidate impossible to
+        # continue through the reference and shot based video flow.
+        from app.models.asset import AssetReference
+        references = db.exec(
+            select(AssetReference).where(AssetReference.clip_id == clip.id)
+        ).all()
+        for reference in references:
+            db.add(
+                AssetReference(
+                    clip_id=candidate.id,
+                    asset_id=reference.asset_id,
+                    slot_no=reference.slot_no,
+                    required=reference.required,
+                    source=reference.source,
+                )
+            )
+        source_shots = db.exec(select(ClipShot).where(ClipShot.clip_id == clip.id)).all()
+        for shot in source_shots:
+            db.add(
+                ClipShot(
+                    clip_id=candidate.id,
+                    shot_no=shot.shot_no,
+                    start_ms=shot.start_ms,
+                    end_ms=shot.end_ms,
+                    visual_text=shot.visual_text,
+                    camera_text=shot.camera_text,
+                    dialogue_text=shot.dialogue_text,
+                    sound_text=shot.sound_text,
+                )
+            )
         db.flush()
         node = canvas_service.ensure_shot_node(db, clip.episode_id, candidate)
         canvas_service.place_node(
@@ -671,14 +803,18 @@ def _plan_assets(db: Session, submission: GenerationSubmission, *, asset_type: s
         if script.kind != DocumentKind.script:
             raise AppError("BUSINESS_RULE_VIOLATION", "人物立绘只能从剧本规划")
         _require_saved(script, "请先保存剧本，再规划人物立绘")
-        clips = [
-            c
-            for c in clip_service.list_clips(db, script.episode_id)
-            if not _clip_hidden(db, c.id)
-        ]
+        # 严格按当前剧本分支过滤：A、B 剧本同时存在时，从 A 发起规划不能混入
+        # B 的 Clip / 场景 / 人物。
+        bound_setting = _bound_setting_document(db, script)
+        clips = _script_branch_clips(db, script)
+        character_names = _episode_character_names(
+            db,
+            script.episode_id,
+            setting_document_id=bound_setting.id if bound_setting else None,
+        )
         characters = sorted(
             {
-                *_episode_character_names(db, script.episode_id),
+                *character_names,
                 *(name for c in clips for name in _clip_characters(c)),
             }
         )
@@ -689,6 +825,8 @@ def _plan_assets(db: Session, submission: GenerationSubmission, *, asset_type: s
         characters = sorted(_clip_characters(clip))
         location = clip.location_name
         clip_ids = [clip.id]
+        script = None
+        bound_setting = None
 
     payload, attempt = generation_service.call_text(
         db,
@@ -704,6 +842,11 @@ def _plan_assets(db: Session, submission: GenerationSubmission, *, asset_type: s
             "clipIds": clip_ids,
             "characters": characters,
             "location": location,
+            # 规划输入必须能自证来自哪个剧本分支：脚本、revision、人物与 Clip 快照
+            "scriptDocumentId": script.id if script else None,
+            "scriptRevisionId": script.current_revision_id if script else None,
+            "settingDocumentId": bound_setting.id if bound_setting else None,
+            "settingRevisionId": script.bound_setting_revision_id if script else None,
         },
         context={
             "assetType": asset_type,

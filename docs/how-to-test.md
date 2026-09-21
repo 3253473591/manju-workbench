@@ -6,16 +6,46 @@
 - **B. 自动化跑一遍**（2 分钟）——测试套件 + 端到端脚本
 - **C. 按 PRD 验收清单逐项验**（20 分钟）——十项，每项点哪、看什么，见 §4
 
+> 第一次 clone、还没有可用环境？先走 README §3「从零开始的最短复现路径」，
+> 或者直接 `.\scripts\verify_clean_env.ps1` 把门禁跑完再回来。
+
+---
+
+## 0. 前置检查：先确认环境，再判断代码
+
+版本口径与 README §2 完全一致：Python **3.13.x**、Node **24.x**、MySQL **8.0**、
+ffmpeg / ffprobe 可用。一条命令全查一遍（只用标准库，依赖没装也能跑）：
+
+```powershell
+# 当前目录：仓库根目录
+python backend\scripts\check_env.py
+```
+
+它逐项打印 `OK / WARN / FAIL`：Python、Node/npm、ffmpeg/ffprobe、后端依赖能否导入、
+应用库与测试库的 MySQL 连接、端口占用。**任何 FAIL 都先给修法，退出码 1；把 FAIL 清掉再往下走**，
+否则你分不清失败是版本、依赖还是代码造成的。
+
+等价的自动化版本（多做了「依赖锁定 + 用例数核对」两件事）：
+
+```powershell
+.\scripts\verify_clean_env.ps1
+```
+
 ---
 
 ## 1. 现在的运行状态
+
+> 下面这张表描述的是**作者机器上正在跑的演示实例**，不是仓库属性。
+> 你自己 clone 之后按 README §3 启动，端口以你自己的为准。
 
 | 组件 | 地址 | 状态 |
 |---|---|---|
 | 前端 | <http://127.0.0.1:5180> | 运行中 |
 | 后端 | <http://127.0.0.1:8020/api/v1> | 运行中，`APP_MODE=mock` |
 | 接口文档 | <http://127.0.0.1:8020/docs> | Swagger UI，可直接试接口 |
+| 健康检查 | <http://127.0.0.1:8020/api/v1/health> | `status=ok` + 数据库探活结果 |
 | MySQL | `127.0.0.1:3306/manju_director` | 运行中 |
+
 
 **登录账号**：`admin` / `admin123`（本地 Demo 账号，首次启动自动 seed）
 
@@ -65,25 +95,44 @@
 
 ## 3. B. 自动化跑一遍
 
-### 3.1 测试套件（79 项）
+### 3.1 测试套件（117 项）
 
 ```powershell
-cd D:\AAA_Code_Project\漫剧工作台\manju-director\backend
-$env:PYTHONPATH="$PWD\.pylibs;$PWD"
+# 当前目录：backend
+$env:MANJU_TEST_DATABASE_URL = "mysql+pymysql://<user>:<password>@127.0.0.1:3306/manju_director_test?charset=utf8mb4"
+$env:PYTHONPATH="$(Resolve-Path .\.pylibs);$(Resolve-Path .)"
 $env:PYTHONUTF8='1'
-$env:DATABASE_URL='mysql+pymysql://root:root@127.0.0.1:3306/manju_director_test?charset=utf8mb4'
-$env:APP_MODE='mock'
-$env:WORKER_ENABLED='false'
-python -m pytest -q
+$env:DEBUG = $null
+python -m pytest
 ```
 
-测试库是独立的 `manju_director_test`，每个用例前清表，**不会动你的演示数据**。
+> **不要再加 `-q`**：`pytest.ini` 的 `addopts` 已经有 `-q`，再加一层会把结尾的
+> `117 passed in ...s` 汇总行一起压掉，只剩一排点。
+
+**测试库是 `conftest.py` 强制指定的**（默认 `manju_director_test`），不需要也不应该靠
+`DATABASE_URL`：那个变量是给应用跑的。
+
+- 想换测试库：设 `MANJU_TEST_DATABASE_URL`（库名必须以 `_test` 结尾）。
+  它是一条完整连接串，账号/密码/主机/端口都在里面，默认是
+  `mysql+pymysql://root:root@127.0.0.1:3306/manju_director_test?charset=utf8mb4`——
+  你的 MySQL 账号不是 `root/root` 就换成自己的，**这是必填项，不是可选项**
+- 库名不以 `_test` 结尾 → 直接拒绝运行，防止把演示库 drop 掉
+- 两个 pytest 会话同时跑 → 后一个会等前一个（会话级 `GET_LOCK`），不会互相清表
+- 迁移后会校验表齐全，缺表立刻报错
+- 结论数是 **117 passed**；数量对不上，说明代码或文档有一方过期，两边都要改
+  （`.\scripts\verify_clean_env.ps1` 会用这个数核对，不一致直接判失败）
+
+> 为什么这么严：早期版本用 `os.environ.setdefault("DATABASE_URL", ...)`。只要你 shell 里
+> 导出过 `DATABASE_URL`（比如刚跑过后端），测试就会悄悄打到**演示库**，还和 dev server
+> 抢同一批表，报出 `Table 'xxx.clips' doesn't exist`、`Table definition has changed`、
+> `Deadlock found` 以及一堆看似无关的用例失败。
 
 想看细节加 `-v`，想看某个文件：`python -m pytest tests/test_mock_chain.py -v`
 
 ### 3.2 端到端链路脚本
 
 ```powershell
+# 当前目录：backend（后端已在 8020 跑着）
 $env:MANJU_BACKEND_PORT='8020'
 python scripts\seed_demo.py --name "我自己的测试"
 ```
@@ -94,11 +143,26 @@ python scripts\seed_demo.py --name "我自己的测试"
 ### 3.3 契约 / 迁移 / 前端类型
 
 ```powershell
+# 当前目录：backend；先确保 PYTHONPATH 指到工作区依赖
+$env:PYTHONPATH="$(Resolve-Path .\.pylibs);$(Resolve-Path .)"
 python scripts\validate_openapi.py                      # 手写契约的结构与 $ref
 python scripts\export_openapi.py                        # 导出服务端实际生成的 OpenAPI
-python -m alembic -c alembic.ini check                  # 应输出 No new upgrade operations
+
+# 迁移漂移必须对着「已迁到 head 的库」跑；对遗留演示库跑会报历史漂移，不代表仓库有问题。
+# 用测试库最省事（它就是 *_test 命名）：
+$env:DATABASE_URL = if ($env:MANJU_TEST_DATABASE_URL) { $env:MANJU_TEST_DATABASE_URL }
+                    else { 'mysql+pymysql://root:root@127.0.0.1:3306/manju_director_test?charset=utf8mb4' }
+python -m alembic -c alembic.ini downgrade base
+python -m alembic -c alembic.ini upgrade head
+python -m alembic -c alembic.ini check                  # 期望：No new upgrade operations detected
+Remove-Item Env:\DATABASE_URL
+
+# 当前目录：backend；前端类型检查
 node ..\frontend\node_modules\typescript\bin\tsc -p ..\frontend\tsconfig.json
 ```
+
+> `MANJU_TEST_DATABASE_URL` 没设时就用 `conftest.py` 的内置默认值；
+> 显式写死一条你自己的连接串也可以，别用 `DATABASE_URL` 指到演示库再去跑迁移往返。
 
 ### 3.4 验计费算得对不对
 
@@ -209,21 +273,20 @@ python scripts\continue_real_demo.py <projectId>    # 文本步骤超时了用�
 ## 7. 重开服务 / 换端口
 
 ```powershell
-# 后端
-cd D:\AAA_Code_Project\漫剧工作台\manju-director\backend
-$env:PYTHONPATH="$PWD\.pylibs;$PWD"; $env:PYTHONUTF8='1'; $env:APP_MODE='mock'
+# 当前目录：<仓库>/backend
+$env:PYTHONPATH="$(Resolve-Path .\.pylibs);$(Resolve-Path .)"; $env:PYTHONUTF8='1'; $env:APP_MODE='mock'; $env:DEBUG = $null
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8020
 
-# 前端（必须显式绑 127.0.0.1，否则可能只监听 IPv6 连不上）
-cd ..\frontend
+# 当前目录：<仓库>/frontend（必须显式绑 127.0.0.1，否则可能只监听 IPv6 连不上）
 $env:MANJU_BACKEND='http://127.0.0.1:8020'; $env:MANJU_WEB_PORT='5180'
 node node_modules\vite\bin\vite.js --host 127.0.0.1 --port 5180 --strictPort
 ```
 
 - 后端启动时会自动：建库（缺则建）→ 跑 Alembic 迁移 → seed 管理员与模型配置
-- **清空重来**：`$env:DATABASE_URL='...manju_director...'` 后跑 `python scripts\db_reset.py --yes`，
-  再重启后端即可（演示数据会没，管理员会重新 seed）
+- **清空重来**：把 `DATABASE_URL` 指到 `manju_director`（演示库）后跑
+  `python scripts\db_reset.py --yes`，再重启后端即可（演示数据会没，管理员会重新 seed）
 - 换端口时前端和后端要**一起改**：前端靠 `MANJU_BACKEND` 决定代理目标
+- 端口被谁占了、能不能换，先看 `python backend\scripts\check_env.py` 的「端口」一项
 
 ---
 

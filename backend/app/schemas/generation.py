@@ -17,6 +17,8 @@ class SubmissionAccepted(ApiModel):
 
 class VideoPlanAccepted(SubmissionAccepted):
     mediaNode: dict
+    #: 冻结下来的参考图数量（重放同一个 Idempotency-Key 时也要如实返回）
+    frozenReferenceCount: int = 0
 
 
 class SubmissionOut(ApiModel):
@@ -30,6 +32,9 @@ class SubmissionOut(ApiModel):
     targetId: str | None = None
     errorCode: str = ""
     errorMessage: str = ""
+    #: 崩溃恢复审计：被回收重试的次数与最近一次恢复原因
+    recoveryCount: int = 0
+    recoveryReason: str = ""
     createdAt: str
     finishedAt: str | None = None
 

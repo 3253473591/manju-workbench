@@ -1237,7 +1237,10 @@ paths:
       tags: [media]
       operationId: createPromptVersion
       summary: 追加用户修改的 B 版本
-      description: 只在当前节点追加 V1、V2……，不立即出图；用户选版后主动抽卡。
+      description: |
+        只在当前节点追加 V1、V2……，不立即出图，**也不产生任何模型调用与 attempt**
+        （A+B 的组装是服务端本地模板拼接）。用户选版后主动抽卡。
+        结果节点调用时，版本追加到它的迭代方案上（按需建立），因此结果节点也能继续编辑。
       x-required-roles: [user, admin]
       parameters:
         - $ref: '#/components/parameters/MediaNodeIdPath'
@@ -1258,6 +1261,38 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/PromptVersionEnvelope' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /media-nodes/{mediaNodeId}/prompt-optimize:
+    post:
+      tags: [media]
+      operationId: optimizePrompt
+      summary: 独立执行提示词优化并记录 attempt
+      description: |
+        把「发送优化」与「保存用户编辑」拆成两个操作：本接口一定会创建一次独立的
+        text attempt（含输入快照与费用记录）；`POST /media-nodes/{id}/prompt-versions`
+        只追加用户编辑的 prompt version，不产生模型调用。
+        结果节点调用本接口时，服务端会复制当前结果为一个迭代方案，来源结果、
+        prompt revision、seed 与冻结参考图快照都记录在方案与 attempt 快照上。
+      x-required-roles: [user, admin]
+      parameters:
+        - $ref: '#/components/parameters/MediaNodeIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/RequestIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirement: { type: string, maxLength: 4000 }
+                modelConfigId: { type: [string, 'null'] }
+                productLabel: { type: string, enum: [lite, pro] }
+      responses:
+        '202': { $ref: '#/components/responses/SubmissionAccepted' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/BusinessRule' }
 
   /media-nodes/{mediaNodeId}/prompt-versions/{versionId}/select:
     post:
@@ -1283,9 +1318,13 @@ paths:
       operationId: drawMedia
       summary: 抽卡（N 次生成 N 个独立同级结果节点）
       description: |
-        修改 B 后直接抽卡：先保存新的「用户修改」方案，再优化新 A+B、绑定最终输入并生图。
-        同版再次抽卡复用已冻结的最终输入，不再优化。N 次抽卡创建 N 个独立同级结果节点，
-        不覆盖旧产物。每次只允许一张源图。
+        方案节点与结果节点都可用。
+        - 方案节点：用当前选中的 prompt version 组装/复用已冻结的最终输入后生图或生视频，
+          **不在这里调用模型优化提示词**；要优化请用 `POST /media-nodes/{id}/prompt-optimize`。
+        - 结果节点：服务端复制当前结果为一个迭代方案（同一结果只对应一个，重复点击复用），
+          来源结果、prompt revision、seed 与冻结参考图快照都记录在方案 params 与 attempt 快照上，
+          再按方案节点的方式抽卡。
+        N 次抽卡创建 N 个独立同级结果节点，不覆盖旧产物。
       x-required-roles: [user, admin]
       parameters:
         - $ref: '#/components/parameters/MediaNodeIdPath'
@@ -1305,6 +1344,7 @@ paths:
                   description: -1 为随机；固定 seed 时数量强制为 1
                 modelConfigId: { type: [string, 'null'] }
                 productLabel: { type: string, enum: [lite, pro] }
+                requirement: { type: string, maxLength: 4000 }
       responses:
         '202': { $ref: '#/components/responses/SubmissionAccepted' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -2450,6 +2490,9 @@ components:
           required: [mediaNode]
           properties:
             mediaNode: { $ref: '#/components/schemas/MediaNode' }
+            frozenReferenceCount:
+              type: integer
+              description: 冻结下来的参考图数量；同一个 Idempotency-Key 重放时也如实返回
     Submission:
       type: object
       required: [id, operation, logicalStatus, requestedCount, createdAt]
@@ -2464,6 +2507,12 @@ components:
         targetId: { type: [string, 'null'] }
         errorCode: { type: string }
         errorMessage: { type: string }
+        recoveryCount:
+          type: integer
+          description: 因 worker 租约过期被回收重试的次数
+        recoveryReason:
+          type: string
+          description: 最近一次崩溃恢复或供应商任务收敛的原因
         createdAt: { type: string, format: date-time }
         finishedAt: { type: [string, 'null'], format: date-time }
     Attempt:

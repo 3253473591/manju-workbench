@@ -230,6 +230,41 @@ def create_video_plan(
 ) -> dict:
     clip = clip_service.get_clip_or_404(db, clipId)
 
+    # 幂等必须最先判定：重试要复用原任务，而不是先建一套新方案与新画布节点，
+    # 再因为 payload 里的新 plan id 不同而返回 409，留下孤儿节点。
+    existing = generation_service.submission_by_key(db, idempotency_key)
+    if existing is not None:
+        if existing.target_id != clip.id or existing.operation != Operation.video_plan_create:
+            raise AppError(
+                "IDEMPOTENCY_CONFLICT",
+                "相同的 Idempotency-Key 已经用于其他请求",
+                details={"submissionKey": idempotency_key},
+            )
+        payload_existing = generation_service._payload(existing)
+        plan_id = payload_existing.get("mediaNodeId")
+        plan = db.get(media_service.MediaNode, str(plan_id)) if plan_id else None
+        return {
+            "submissionId": existing.id,
+            "operation": existing.operation.value,
+            "logicalStatus": existing.logical_status.value,
+            "requestedCount": existing.requested_count,
+            "nodeIds": [existing.node_id] if existing.node_id else [],
+            "mediaNode": media_service.media_node_out(db, plan) if plan else None,
+            "frozenReferenceCount": int(payload_existing.get("frozenReferenceCount") or 0),
+        }
+
+    # 稳定锁键：锁的是「Clip 对应的画布节点」，不是本次刚建出来的视频方案节点。
+    # 否则重复点击各自拿到新键，节点级生成锁形同虚设。
+    clip_node = canvas_service.find_clip_node(db, clip.id)
+    lock_key = clip_node.id if clip_node is not None else clip.id
+    active = generation_service.active_submission_for_lock(db, lock_key)
+    if active is not None:
+        raise AppError(
+            "GENERATION_IN_PROGRESS",
+            "该 Clip 已有未结束的视频方案任务",
+            details={"clipId": clip.id, "submissionId": active.id},
+        )
+
     # 先校验：命名不合规、0 个或多于 1 个候选、文件不可用都在这里被点名拦下，
     # 不创建任何节点，也不调用视频 Agent。
     frozen = media_service.validate_video_references(db, clip)
@@ -249,7 +284,6 @@ def create_video_plan(
     )
     media_service.freeze_video_references(db, plan, clip)
 
-    clip_node = canvas_service.find_clip_node(db, clip.id)
     x, y = canvas_service.suggest_position(
         db,
         clip.episode_id,
@@ -283,11 +317,12 @@ def create_video_plan(
             },
             # 专用按钮优于手动拖线规则：Clip → 视频方案允许跨阶段
             enforce_stage_rule=False,
+            # 方案、画布节点、依赖边与 submission 必须同事务，失败整体回滚
+            commit=False,
         )
-    db.commit()
-
     submission_payload = payload.model_dump()
     submission_payload["mediaNodeId"] = plan.id
+    submission_payload["frozenReferenceCount"] = len(frozen)
     submission, _created = generation_service.create_submission(
         db,
         submission_key=idempotency_key,
@@ -300,7 +335,10 @@ def create_video_plan(
         created_by=user.id,
         request_id=request_id,
         payload=submission_payload,
+        lock_key=lock_key,
+        commit=False,
     )
+    db.commit()
     return {
         "submissionId": submission.id,
         "operation": submission.operation.value,

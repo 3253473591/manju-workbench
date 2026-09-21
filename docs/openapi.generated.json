@@ -2563,6 +2563,75 @@
         }
       }
     },
+    "/api/v1/media-nodes/{mediaNodeId}/prompt-optimize": {
+      "post": {
+        "tags": [
+          "media"
+        ],
+        "summary": "独立执行提示词优化并记录 attempt",
+        "description": "把「发送优化」与「保存用户编辑」拆成两个操作。\n\n优化必须落一次独立的 text attempt（含输入快照）；保存 B 只追加 prompt version，\n不产生模型调用。两者不可混为一谈，否则审计上分不清哪一版是模型给的。",
+        "operationId": "optimize_prompt_api_v1_media_nodes__mediaNodeId__prompt_optimize_post",
+        "parameters": [
+          {
+            "name": "mediaNodeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Medianodeid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DrawRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionAccepted"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/media-nodes/{mediaNodeId}/prompt-versions/{versionId}/select": {
       "post": {
         "tags": [
@@ -3494,6 +3563,24 @@
             },
             "type": "array",
             "title": "References"
+          },
+          "submissionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submissionid"
+          },
+          "droppedClipIds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Droppedclipids"
           }
         },
         "type": "object",
@@ -5147,6 +5234,11 @@
               }
             ],
             "title": "Productlabel"
+          },
+          "requirement": {
+            "type": "string",
+            "title": "Requirement",
+            "default": ""
           }
         },
         "type": "object",
@@ -5334,6 +5426,73 @@
               }
             ],
             "title": "Productlabel"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation",
+            "description": "预估用的操作名；缺省按 text_optimize 处理"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Durationseconds",
+            "default": 5
+          },
+          "resolution": {
+            "type": "string",
+            "maxLength": 16,
+            "title": "Resolution",
+            "default": "720p"
+          },
+          "imagePixels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagepixels",
+            "description": "预估图片费用时按产物像素分档"
+          },
+          "sourceImages": {
+            "type": "integer",
+            "maximum": 9.0,
+            "minimum": 0.0,
+            "title": "Sourceimages",
+            "default": 0
+          },
+          "inputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputtokens",
+            "description": "预估文本费用时按已知 token 数量折算"
+          },
+          "outputTokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outputtokens"
           }
         },
         "type": "object",
@@ -6380,6 +6539,16 @@
             "title": "Errormessage",
             "default": ""
           },
+          "recoveryCount": {
+            "type": "integer",
+            "title": "Recoverycount",
+            "default": 0
+          },
+          "recoveryReason": {
+            "type": "string",
+            "title": "Recoveryreason",
+            "default": ""
+          },
           "createdAt": {
             "type": "string",
             "title": "Createdat"
@@ -6830,6 +6999,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Medianode"
+          },
+          "frozenReferenceCount": {
+            "type": "integer",
+            "title": "Frozenreferencecount",
+            "default": 0
           }
         },
         "type": "object",

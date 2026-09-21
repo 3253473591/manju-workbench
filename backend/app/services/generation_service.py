@@ -11,9 +11,12 @@
 from __future__ import annotations
 
 import json
+import socket
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlmodel import Session, select
+from sqlalchemy import and_, or_, update
 
 from app.core.errors import AppError
 from app.core.prompts import SYSTEM_PROMPTS, content_fingerprint
@@ -65,6 +68,93 @@ MEDIA_OPERATIONS = {
 
 ACTIVE_STATUSES = (LogicalStatus.pending, LogicalStatus.running)
 
+#: 已提交给供应商、但还没拿到终态回执的物理状态。这些 attempt 只能靠
+#: `provider_task_id` 复查恢复，绝不允许重新提交。
+RECONCILABLE_PHYSICAL_STATUSES = (
+    PhysicalStatus.accepted,
+    PhysicalStatus.running,
+    PhysicalStatus.unknown,
+)
+
+
+def _worker_id() -> str:
+    return f"{socket.gethostname()}:{id(run_pending)}"
+
+
+def recover_stale_submissions(db: Session, *, lease_seconds: int | None = None) -> int:
+    """Requeue crashed running jobs; an attempt is never silently left as a lock.
+
+    带在途供应商任务的 submission **不参与**租约回收：它由 `provider_reconciler`
+    按 `provider_task_id` 复查，重新入队会再提交一次收费任务。
+
+    用**一条批量 UPDATE** 完成，而不是「先 SELECT 出来再逐行改」：后者每行都要经历
+    一次读-改-写，在多 worker 并发时与原子领取互相持锁，是死锁的主要来源。
+    """
+    from app.core.config import settings
+
+    seconds = lease_seconds or settings.GENERATION_LEASE_SECONDS
+    cutoff = utcnow() - timedelta(seconds=seconds)
+    now = utcnow()
+
+    inflight = (
+        select(GenerationAttempt.id)
+        .where(
+            GenerationAttempt.submission_id == GenerationSubmission.id,
+            GenerationAttempt.provider_task_id.is_not(None),  # type: ignore[union-attr]
+            GenerationAttempt.physical_status.in_(RECONCILABLE_PHYSICAL_STATUSES),  # type: ignore[union-attr]
+        )
+        .exists()
+    )
+    stale = and_(
+        GenerationSubmission.logical_status == LogicalStatus.running,
+        or_(
+            GenerationSubmission.heartbeat_at < cutoff,
+            and_(
+                GenerationSubmission.heartbeat_at.is_(None),  # type: ignore[union-attr]
+                GenerationSubmission.updated_at < cutoff,
+            ),
+        ),
+    )
+
+    requeued = db.exec(
+        update(GenerationSubmission)
+        .where(stale, ~inflight)
+        .values(
+            logical_status=LogicalStatus.pending,
+            claimed_at=None,
+            claimed_by="",
+            heartbeat_at=None,
+            recovery_count=GenerationSubmission.recovery_count + 1,
+            recovery_reason="worker lease expired; requeued after restart",
+            updated_at=now,
+        )
+    )
+    # 在途任务的租约到期只记录原因，不改状态（否则会重复计费）。
+    db.exec(
+        update(GenerationSubmission)
+        .where(stale, inflight)
+        .values(
+            recovery_reason=(
+                "lease expired but a provider task is in flight; deferred to reconciler"
+            ),
+            updated_at=now,
+        )
+    )
+    db.commit()
+    return int(getattr(requeued, "rowcount", 0) or 0)
+
+
+def has_inflight_provider_task(db: Session, submission_id: str) -> bool:
+    """该 submission 是否还有等待供应商回执的 attempt。"""
+    row = db.exec(
+        select(GenerationAttempt.id).where(
+            GenerationAttempt.submission_id == submission_id,
+            GenerationAttempt.provider_task_id.is_not(None),  # type: ignore[union-attr]
+            GenerationAttempt.physical_status.in_(RECONCILABLE_PHYSICAL_STATUSES),  # type: ignore[union-attr]
+        )
+    ).first()
+    return row is not None
+
 
 # --- 序列化 -------------------------------------------------------------
 
@@ -81,6 +171,9 @@ def submission_out(submission: GenerationSubmission) -> dict:
         "targetId": submission.target_id,
         "errorCode": submission.error_code,
         "errorMessage": submission.error_message,
+        # 崩溃恢复的审计轨迹：重试次数与最近一次恢复原因必须可查。
+        "recoveryCount": submission.recovery_count or 0,
+        "recoveryReason": submission.recovery_reason or "",
         "createdAt": to_iso(submission.created_at),
         "finishedAt": to_iso(submission.finished_at),
     }
@@ -217,6 +310,7 @@ def create_submission(
     payload: dict | None = None,
     lock_key: str | None = None,
     require_idle: bool = True,
+    commit: bool = True,
 ) -> tuple[GenerationSubmission, bool]:
     """返回 (submission, 是否新建)。重复 key 复用原任务；key 相同但请求不同返回 409。"""
     body = payload or {}
@@ -235,12 +329,7 @@ def create_submission(
         return existing, False
 
     if require_idle and lock_key:
-        active = db.exec(
-            select(GenerationSubmission).where(
-                GenerationSubmission.node_id == lock_key,
-                GenerationSubmission.logical_status.in_(ACTIVE_STATUSES),  # type: ignore[union-attr]
-            )
-        ).first()
+        active = active_submission_for_lock(db, lock_key)
         if active is not None:
             raise AppError(
                 "GENERATION_IN_PROGRESS",
@@ -257,24 +346,47 @@ def create_submission(
         target_type=target_type,
         target_id=target_id,
         node_id=node_id,
+        lock_key=lock_key,
         created_by=created_by,
         request_id=request_id,
         payload_json=json.dumps(body, ensure_ascii=False, default=str),
     )
     db.add(submission)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        # 调用方要跟其它写入放进同一个事务；flush 让对象变成 persistent，
+        # 这样它才能被 db.refresh / 后续查询看见。
+        db.flush()
     db.refresh(submission)
     return submission, True
 
 
-def active_submission_for_node(db: Session, node_id: str) -> GenerationSubmission | None:
-    """发送按钮的锁必须在服务端：这里就是判据。"""
+def submission_by_key(db: Session, submission_key: str) -> GenerationSubmission | None:
     return db.exec(
         select(GenerationSubmission).where(
-            GenerationSubmission.node_id == node_id,
+            GenerationSubmission.submission_key == submission_key
+        )
+    ).first()
+
+
+def active_submission_for_lock(db: Session, lock_key: str) -> GenerationSubmission | None:
+    """节点级生成锁的**唯一判据**。
+
+    走 `lock_key` 而不是 `node_id`：Clip 生成视频方案这类操作的真实锁对象是
+    「Clip 对应的画布节点」，而本次新建的视频方案节点还没来得及成为任何人的键。
+    """
+    return db.exec(
+        select(GenerationSubmission).where(
+            GenerationSubmission.lock_key == lock_key,
             GenerationSubmission.logical_status.in_(ACTIVE_STATUSES),  # type: ignore[union-attr]
         )
     ).first()
+
+
+def active_submission_for_node(db: Session, node_id: str) -> GenerationSubmission | None:
+    """发送按钮的锁必须在服务端：这里就是判据。"""
+    return active_submission_for_lock(db, node_id)
 
 
 def list_submissions(db: Session, episode_id: str, *, page: int, page_size: int) -> dict:
@@ -300,6 +412,9 @@ def run_submission(db: Session, submission: GenerationSubmission) -> GenerationS
     if submission.logical_status in (LogicalStatus.succeeded, LogicalStatus.cancelled):
         return submission
     submission.logical_status = LogicalStatus.running
+    submission.claimed_at = utcnow()
+    submission.claimed_by = _worker_id()
+    submission.heartbeat_at = utcnow()
     touch(submission)
     db.add(submission)
     db.commit()
@@ -315,32 +430,30 @@ def run_submission(db: Session, submission: GenerationSubmission) -> GenerationS
             raise AppError("INVALID_REQUEST", f"未实现的操作 {submission.operation.value}")
     except AppError as exc:
         db.rollback()
-        submission = db.get(GenerationSubmission, submission.id)
-        if submission is not None:
-            submission.logical_status = LogicalStatus.failed
-            submission.error_code = exc.code
-            submission.error_message = exc.message
-            submission.finished_at = utcnow()
-            touch(submission)
-            db.add(submission)
-            db.commit()
-        return submission
+        return converge_failure(
+            db, submission.id, code=exc.code, message=exc.message
+        )
     except ProviderError as exc:
         db.rollback()
-        submission = db.get(GenerationSubmission, submission.id)
-        if submission is not None:
-            submission.logical_status = LogicalStatus.failed
-            submission.error_code = exc.code
-            submission.error_message = exc.message
-            submission.finished_at = utcnow()
-            touch(submission)
-            db.add(submission)
-            db.commit()
-        return submission
+        return converge_failure(
+            db, submission.id, code=exc.code, message=exc.message
+        )
+    except Exception as exc:  # noqa: BLE001 - every job must converge to a terminal/retryable state
+        db.rollback()
+        return converge_failure(
+            db,
+            submission.id,
+            code="GENERATION_FAILED",
+            message=str(exc)[:2000],
+            recovery_reason=f"unhandled exception: {type(exc).__name__}",
+        )
 
     submission = db.get(GenerationSubmission, submission.id)
     submission.logical_status = LogicalStatus.succeeded
     submission.finished_at = utcnow()
+    submission.claimed_at = None
+    submission.claimed_by = ""
+    submission.heartbeat_at = None
     touch(submission)
     db.add(submission)
     db.commit()
@@ -348,8 +461,54 @@ def run_submission(db: Session, submission: GenerationSubmission) -> GenerationS
     return submission
 
 
+def converge_failure(
+    db: Session,
+    submission_id: str,
+    *,
+    code: str,
+    message: str,
+    recovery_reason: str = "",
+) -> GenerationSubmission | None:
+    """把提交收敛到终态。
+
+    例外：如果这次提交还握着在途的供应商任务（`provider_task_id` 已落库且物理状态
+    仍是 accepted/running/unknown），**不能**标成 failed 就完事——那会让一个已收费
+    的供应商任务失去唯一的重查入口。此时保留 running，交给 reconciler 按任务 ID
+    复查收敛。
+    """
+    submission = db.get(GenerationSubmission, submission_id)
+    if submission is None:
+        return None
+    if has_inflight_provider_task(db, submission_id):
+        submission.logical_status = LogicalStatus.running
+        submission.error_code = code
+        submission.error_message = message
+        submission.recovery_reason = (
+            recovery_reason or "provider task in flight; awaiting reconciler"
+        )
+        touch(submission)
+        db.add(submission)
+        db.commit()
+        return submission
+
+    submission.logical_status = LogicalStatus.failed
+    submission.error_code = code
+    submission.error_message = message
+    submission.finished_at = utcnow()
+    if recovery_reason:
+        submission.recovery_reason = recovery_reason
+    submission.claimed_at = None
+    submission.claimed_by = ""
+    submission.heartbeat_at = None
+    touch(submission)
+    db.add(submission)
+    db.commit()
+    return submission
+
+
 def run_pending(db: Session, *, limit: int = 5) -> int:
     """把 pending 的提交推进一轮。先推进状态再判锁，避免锁永久卡住。"""
+    recover_stale_submissions(db)
     pending = list(
         db.exec(
             select(GenerationSubmission)
@@ -358,9 +517,36 @@ def run_pending(db: Session, *, limit: int = 5) -> int:
             .limit(limit)
         ).all()
     )
-    for submission in pending:
+    claimed: list[GenerationSubmission] = []
+    # Claim in this transaction before doing provider work.  UPDATE ... WHERE
+    # status=pending gives each worker a deterministic lease even without SKIP LOCKED.
+    for candidate in pending:
+        now = utcnow()
+        result = db.exec(
+            update(GenerationSubmission)
+            .where(
+                GenerationSubmission.id == candidate.id,
+                GenerationSubmission.logical_status == LogicalStatus.pending,
+            )
+            .values(
+                logical_status=LogicalStatus.running,
+                claimed_at=now,
+                claimed_by=_worker_id(),
+                heartbeat_at=now,
+                updated_at=now,
+            )
+        )
+        if result.rowcount != 1:
+            continue
+        current = db.get(GenerationSubmission, candidate.id)
+        if current is not None:
+            claimed.append(current)
+    db.commit()
+    for submission in claimed:
+        # run_submission is idempotent for an already claimed row and keeps
+        # the existing exception convergence path.
         run_submission(db, submission)
-    return len(pending)
+    return len(claimed)
 
 
 # --- attempt ------------------------------------------------------------
@@ -672,23 +858,29 @@ def _run_text_operation(db: Session, submission: GenerationSubmission) -> None:
 __all__ = [
     "ACTIVE_STATUSES",
     "MEDIA_OPERATIONS",
+    "RECONCILABLE_PHYSICAL_STATUSES",
     "TEXT_OPERATIONS",
+    "active_submission_for_lock",
     "active_submission_for_node",
     "attempt_out",
+    "converge_failure",
     "create_submission",
     "finish_attempt_failure",
     "finish_attempt_success",
     "get_submission_detail",
     "get_submission_or_404",
+    "has_inflight_provider_task",
     "link_attempt",
     "list_attempts",
     "list_submissions",
     "parse_json_payload",
     "record_delivery",
     "record_usage",
+    "recover_stale_submissions",
     "run_pending",
     "run_submission",
     "start_attempt",
+    "submission_by_key",
     "submission_out",
     "update_payload",
 ]
