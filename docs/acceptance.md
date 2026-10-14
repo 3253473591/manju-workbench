@@ -45,7 +45,7 @@ python -m pytest
 
 版本与基础设施（Python 3.13.x / Node 24.x / MySQL 8.0 / ffmpeg）先用
 `python backend\scripts\check_env.py` 过一遍；依赖按 `backend/requirements.lock` 锁定安装。
-一条命令核对全部结论：`.\scripts\verify_clean_env.ps1`（见 [README §3](../README.md)）。
+一条命令核对全部结论：`.\scripts\verify_clean_env.ps1`（见 [DEVELOPMENT.md §3](DEVELOPMENT.md)）。
 
 > 之前的版本这里是 `os.environ.setdefault("DATABASE_URL", ...)`。只要你的 shell 里
 > 导出过 `DATABASE_URL`（例如刚在同一个窗口跑过后端），整轮测试就会悄悄打到**演示库**，

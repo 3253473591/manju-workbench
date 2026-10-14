@@ -1,10 +1,10 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     漫剧工作台：从零复现门禁（G0–G8）。
 
 .DESCRIPTION
-    把 README §3「从零开始的最短复现路径」里散落的步骤收成一条命令，逐项打印结论。
+    把 docs/DEVELOPMENT.md §3「从零开始的最短复现路径」里散落的步骤收成一条命令，逐项打印结论。
 
     与 README 手工路径等价；区别只是它会强制走**锁定依赖**、**独立 *_test 库**，
     并在最后核对测试总数与文档是否一致。

@@ -4,7 +4,7 @@
 
     python backend\\scripts\\check_env.py
 
-它检查（README §2/§3 的门禁 G1、G3、G5 对应的可执行版本）：
+它检查（docs/DEVELOPMENT.md §2/§3 的门禁 G1、G3、G5 对应的可执行版本）：
 
 1. Python 版本（本仓库验证版本 3.13.x）
 2. Node / npm 版本（验证版本 24.x）与 `frontend/node_modules`
@@ -39,7 +39,7 @@ _PYLIBS = BACKEND_DIR / ".pylibs"
 if _PYLIBS.is_dir() and str(_PYLIBS) not in sys.path:
     sys.path.insert(0, str(_PYLIBS))
 
-#: 本仓库在 2026-09-21 复核时验证通过的版本（见 README §2）。
+#: 本仓库在 2026-09-21 复核时验证通过的版本（见 docs/DEVELOPMENT.md §2）。
 VERIFIED_PYTHON = (3, 13)
 VERIFIED_NODE_MAJOR = 24
 VERIFIED_MYSQL_MAJOR = 8
@@ -462,7 +462,7 @@ def check_test_db_url_provided(report: Report) -> tuple[str, str]:
         "MANJU_TEST_DATABASE_URL",
         WARN,
         f"未设置，将回退到 conftest.py 的内置默认值 {DEFAULT_TEST_DATABASE_URL}",
-        "本机 MySQL 账号不是 root/root 时**必须**显式设置（见 README §3.1「G6 后端测试」那一段）：\n"
+        "本机 MySQL 账号不是 root/root 时**必须**显式设置（见 docs/DEVELOPMENT.md §3.1「G6 后端测试」那一段）：\n"
         '        $env:MANJU_TEST_DATABASE_URL = '
         '"mysql+pymysql://<user>:<password>@127.0.0.1:3306/manju_director_test?charset=utf8mb4"',
     )

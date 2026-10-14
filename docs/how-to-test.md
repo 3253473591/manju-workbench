@@ -6,14 +6,14 @@
 - **B. 自动化跑一遍**（2 分钟）——测试套件 + 端到端脚本
 - **C. 按 PRD 验收清单逐项验**（20 分钟）——十项，每项点哪、看什么，见 §4
 
-> 第一次 clone、还没有可用环境？先走 README §3「从零开始的最短复现路径」，
+> 第一次 clone、还没有可用环境？先走 DEVELOPMENT.md §3「从零开始的最短复现路径」，
 > 或者直接 `.\scripts\verify_clean_env.ps1` 把门禁跑完再回来。
 
 ---
 
 ## 0. 前置检查：先确认环境，再判断代码
 
-版本口径与 README §2 完全一致：Python **3.13.x**、Node **24.x**、MySQL **8.0**、
+版本口径与 DEVELOPMENT.md §2 完全一致：Python **3.13.x**、Node **24.x**、MySQL **8.0**、
 ffmpeg / ffprobe 可用。一条命令全查一遍（只用标准库，依赖没装也能跑）：
 
 ```powershell
@@ -36,7 +36,7 @@ python backend\scripts\check_env.py
 ## 1. 现在的运行状态
 
 > 下面这张表描述的是**作者机器上正在跑的演示实例**，不是仓库属性。
-> 你自己 clone 之后按 README §3 启动，端口以你自己的为准。
+> 你自己 clone 之后按 DEVELOPMENT.md §3 启动，端口以你自己的为准。
 
 | 组件 | 地址 | 状态 |
 |---|---|---|
