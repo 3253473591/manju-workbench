@@ -665,6 +665,17 @@ draft ──S4──▶ prompted ──generate──▶ generating ──▶ `r
 `approved → rejected` 是刻意留的捷径：**通过之后又发现问题**时，"撤销通过并打回"一步到位，
 否则得 `approved → review` 再 `review → rejected` 两次点击（中间还会闪一下待审状态）。
 
+### 6.3.1 数值化质检门
+
+`acceptance_result` 的每条判据可带 `score`（0–100，`unknown` 不带分）。动线判定只能给粗分
+（pass=90 / fail=30，它不知道画面内容）；视觉判定由模型给分。所有已判定判据的均分低于
+`VISION_SCORE_GATE=70` 时：
+
+- **默认模式**：不自动放行，片段留在 `review`，trace 记 `decision=low_score`（附 score/threshold）；
+- **自动模式**：写一条 `low_score` 教训、把修法追加进提示词、`attempts+1` 后重排（仍受 ≤3 与预算前置约束）。
+
+分数同时写入 `job_trace` 的 `review` 与 `decision` 两步，前端据此显示「均分 / 阈值」。
+
 ### 6.3 `skill_version`
 
 ```
