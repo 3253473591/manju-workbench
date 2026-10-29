@@ -38,6 +38,8 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
       - run: pip install -r apps/api/requirements.txt
+      - name: Contract probe (offline)
+        run: python scripts/contract_probe.py --offline
       - name: pytest
         working-directory: apps/api
         env:

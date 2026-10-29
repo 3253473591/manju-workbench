@@ -222,7 +222,7 @@
 | ManjuForge | 检查器自测（故障夹具） | 部分（对抗集已有同类夹具） |
 | wind-comic | **CI + e2e 最小闭环** | ✅ 已实现：四个 job（pytest / 构建 / 配置审计 / Playwright 冒烟），见 `.github/workflows/ci.yml` |
 | wind-comic | "无读者的设置"审计脚本 | ✅ 已实现：`scripts/settings_audit.py --strict`（首跑补了 5 个缺失示例） |
-| wind-comic | 引擎请求**字段类型**契约探针 | 部分（适配层测试 + 连通性检查） |
+| wind-comic | 引擎请求**字段类型**契约探针 | ✅ 已实现：`scripts/contract_probe.py`（离线字段类型 + live 可选），并接进 CI |
 | wind-comic | 数值化质检门（<70 自动重试） | 未做（现为三态判定） |
 | wind-comic | 成本档位 + 发布门 | 部分（四口径 + 日预算） |
 | wind-comic | 帧级检查 / 分段重拍 | 未做（工作量最大，暂缓） |

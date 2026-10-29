@@ -323,6 +323,7 @@ CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）跑四件事：后�
 ```bash
 cd apps/web && pnpm exec playwright test --list   # 本地看用例
 python scripts/settings_audit.py --strict         # 本地跑配置审计
+python scripts/contract_probe.py --offline        # 四条通道的请求体字段类型契约
 ```
 
 ## 已知未做 / 路线图
