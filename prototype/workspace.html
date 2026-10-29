@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>分镜表 · 漫剧工作台</title>
+<link rel="stylesheet" href="base.css" />
+<link rel="stylesheet" href="app.css" />
+<style>
+  /* ============================================================
+     分镜表主视图（局部样式，只服务这一个页面）
+     ============================================================ */
+  .tnum, .mono { font-variant-numeric: tabular-nums; }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  .board { height: 100%; overflow-y: auto; padding: 20px 24px 40px; }
+  .board-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .board-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink-1); }
+  .board-head .spacer { flex: 1 1 auto; }
+  .board-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  /* 分段控件（视图切换 / 成本分组） */
+  .seg { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: #07070a; }
+  .seg button { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 5px; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+  .seg button:hover { color: var(--ink-1); background: var(--s2); }
+  .seg button[aria-selected="true"] { background: var(--s3); color: var(--ink-1); box-shadow: inset 0 0 0 1px var(--line-2); }
+  .seg button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* 字段边界条：这一屏每个数据点来自哪个端点 / 哪个字段缺 */
+  .boundary {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 6px 10px; margin-bottom: 12px;
+    border: 1px dashed var(--line-2); border-radius: var(--r-md);
+    background: rgba(251, 191, 36, 0.035);
+    font-size: 10.5px; line-height: 1.5; color: var(--ink-3);
+  }
+  .boundary .item { display: inline-flex; align-items: center; gap: 4px; }
+  .boundary .icon { width: 11px; height: 11px; }
+  .boundary .ok { color: var(--accent); }
+  .boundary .warn { color: var(--amber); }
+  .boundary .sep { color: #2a2a31; }
+
+  /* 分镜表 */
+  .sbtable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; }
+  .sbtable thead th {
+    position: sticky; top: 0; z-index: 2; height: 30px; padding: 0 8px;
+    text-align: left; white-space: nowrap;
+    font-family: var(--mono); font-size: 9px; font-weight: 500;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-4);
+    background: #08080a; border-bottom: 1px solid var(--line-2);
+  }
+  .sbtable th.r, .sbtable td.r { text-align: right; }
+  .sbtable th.c, .sbtable td.c { text-align: center; }
+  .sbtable { table-layout: fixed; }
+  .sbtable tbody tr.sb-row { cursor: pointer; }
+  .sbtable tbody tr.sb-row:hover td { background: rgba(255, 255, 255, 0.022); }
+  .sbtable tbody tr.sb-row.is-open td { background: #0d0d11; }
+  .sbtable td {
+    height: 40px; padding: 0 8px; white-space: nowrap;
+    color: var(--ink-2); border-bottom: 1px solid var(--line-1); vertical-align: middle;
+  }
+  .sbtable .ix { display: flex; align-items: center; gap: 5px; }
+  .sbtable .ix b { font-family: var(--mono); font-size: 10.5px; font-weight: 500; color: var(--ink-2); }
+  .sbtable .src {
+    font-family: var(--mono); font-size: 9px; color: var(--amber);
+    border: 1px solid rgba(251, 191, 36, 0.28); border-radius: 3px; padding: 0 3px;
+  }
+  .sbtable .thumbcell { padding: 0 8px 0 2px; }
+  .sbtable .thumb {
+    display: block; width: 40px; height: 23px;
+    object-fit: cover; border-radius: 3px;
+    border: 1px solid var(--line-2); background: #0e0e11;
+    filter: saturate(0.85) brightness(0.9);
+    transition: filter 0.2s var(--ease), border-color 0.2s var(--ease);
+  }
+  .sb-row:hover .thumb, .sb-row.is-open .thumb { filter: none; border-color: var(--line-3); }
+  .sbtable .ttl { overflow: hidden; text-overflow: ellipsis; color: var(--ink-1); font-weight: 500; }
+  .sbtable .num { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+  .sbtable .caret { color: var(--ink-4); transition: transform 0.14s var(--ease); }
+  .sb-row.is-open .caret { transform: rotate(180deg); }
+  .sbtable .empty { color: var(--ink-4); }
+
+  /* 展开行 */
+  .sbtable tr.sb-detail > td { padding: 0; background: #08080a; border-bottom: 1px solid var(--line-2); }
+  .detail-inner { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .detail-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+  .shots-lite { display: flex; flex-direction: column; }
+  .shot-lite {
+    display: grid; grid-template-columns: 22px 82px minmax(0, 1fr); gap: 8px;
+    align-items: start; padding: 6px 0; border-top: 1px solid var(--line-1);
+    font-size: 10.5px;
+  }
+  .shot-lite:first-child { border-top: 0; }
+  .shot-lite .no { font-family: var(--mono); font-size: 9px; color: var(--ink-4); padding-top: 2px; }
+  .shot-lite .t { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); padding-top: 1px; }
+  .shot-lite .d { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.6; color: var(--ink-2); }
+
+  .slots-lite { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .slot-ph {
+    display: flex; flex-direction: column; gap: 2px; justify-content: center;
+    padding: 7px 8px; min-height: 46px;
+    border: 1px dashed var(--line-2); border-radius: var(--r-sm); background: #060608;
+  }
+  .slot-ph .top { display: flex; align-items: center; gap: 5px; }
+  .slot-ph .role { font-size: 9px; color: var(--ink-4); }
+  .slot-ph .ref { font-family: var(--mono); font-size: 9.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slot-ph .na { font-family: var(--mono); font-size: 8.5px; color: var(--amber); }
+
+  .dlg-lite { display: flex; flex-direction: column; }
+  .dlg-lite .row2 { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; padding: 6px 0; border-top: 1px solid var(--line-1); font-size: 10.5px; }
+  .dlg-lite .row2:first-child { border-top: 0; }
+  .dlg-lite .who { color: var(--ink-3); }
+  .dlg-lite .who small { display: block; font-family: var(--mono); font-size: 8.5px; color: var(--ink-4); }
+  .dlg-lite .txt { color: var(--ink-2); line-height: 1.6; }
+  .dlg-lite .txt q { quotes: "「" "」"; }
+
+  .act-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 11px; margin-top: 11px; border-top: 1px dashed var(--line-1); }
+  .act-row .spacer { flex: 1 1 auto; }
+
+  /* 镜头墙卡片 */
+  .cell { cursor: pointer; }
+  .cell:focus-visible { outline: 2px solid rgba(52, 211, 153, 0.55); outline-offset: 2px; }
+  .cell .cell-body b { letter-spacing: -0.005em; }
+
+  @media (max-width: 1180px) {
+    .detail-inner { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 900px) {
+    .sbtable .ttl { max-width: 180px; }
+    .board { padding: 16px 14px 32px; }
+  }
+</style>
+</head>
+<body class="app-body grid-surface">
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.4"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-panel-close" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.4"/><path d="M9 3v18"/><path d="m16.5 14.5-3-2.5 3-2.5"/></symbol>
+  <symbol id="i-panel-open" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.4"/><path d="M9 3v18"/><path d="m13.5 9.5 3 2.5-3 2.5"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="3" width="7" height="7" rx="1.4"/><rect x="14" y="14" width="7" height="7" rx="1.4"/><rect x="3" y="14" width="7" height="7" rx="1.4"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M15 7.5h-4a2 2 0 1 0 0 4h3a2 2 0 1 1 0 4H9.5M12.5 5.5v13"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M15 2v2.5M15 19.5V22M2 15h2.5M2 9h2.5M19.5 15H22M19.5 9H22M9 2v2.5M9 19.5V22"/></symbol>
+  <symbol id="i-log-out" viewBox="0 0 24 24"><path d="M9 21H5.5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2H9"/><path d="M16 17l5-5-5-5M21 12H9"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3.2l1.7 4.7 4.7 1.7-4.7 1.7L12 16l-1.7-4.7L5.6 9.6l4.7-1.7Z"/><path d="M18.6 15.2l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8Z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6.5 4.6 19 12 6.5 19.4Z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.4"/><circle cx="8.8" cy="8.8" r="1.7"/><path d="m3.6 17.6 4.6-4.6a2 2 0 0 1 2.8 0l5.4 5.4M15 15l1.9-1.9a2 2 0 0 1 2.8 0l3.3 3.3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21.2 19H2.8Z"/><path d="M12 9v4.2M12 16.4h.01"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h3.5l2.5 7 4-16 2.6 9H21"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M6 8.6V15a3 3 0 0 0 3 3h6M18 15.4V9a3 3 0 0 0-3-3H9"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2"/><path d="M3 4.6V10h5.4M12 8v4.4l2.8 1.6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 20 6v6.2c0 4.6-3.4 7.7-8 9-4.6-1.3-8-4.4-8-9V6Z"/><path d="m8.8 11.8 2.2 2.2 4.2-4.4"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2.8 9 4.6-9 4.6-9-4.6Z"/><path d="m3 12.4 9 4.6 9-4.6M3 16.9l9 4.6 9-4.6"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M15 9V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.4 3.6a2.1 2.1 0 0 1 3 3L7.5 18.5 3 20l1.5-4.5Z"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 8.5V6.8A2.8 2.8 0 0 0 17.2 4H5.8A2.8 2.8 0 0 0 3 6.8v10.4A2.8 2.8 0 0 0 5.8 20h11.4a2.8 2.8 0 0 0 2.8-2.8V15"/><path d="M21 8.5h-5a3.25 3.25 0 0 0 0 6.5h5Z"/></symbol>
+  <symbol id="i-corner" viewBox="0 0 24 24"><path d="M4 4v9a4 4 0 0 0 4 4h11"/><path d="m15 13 4 4-4 4"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 4.5 13.5H11l-1 8.5 9-12h-6.5Z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></symbol>
+</svg>
+
+<div class="app" id="app">
+
+  <!-- ==================== 可折叠侧栏（导航，不是视图） ==================== -->
+  <aside class="sidebar" id="sidebar" aria-label="主导航">
+    <div class="sb-head">
+      <a class="brand-mini" href="workspace.html" title="漫剧工作台">
+        <span class="mark"><svg class="icon icon-14"><use href="#i-film"/></svg></span>
+        <span class="txt"><b>漫剧工作台</b><em>MANJU STUDIO</em></span>
+      </a>
+      <button class="sb-toggle" id="sbToggle" title="折叠侧栏 (⌘B)" aria-label="折叠侧栏">
+        <svg class="icon icon-14"><use href="#i-panel-close"/></svg>
+      </button>
+    </div>
+
+    <button class="proj" title="《师尊别砍我系统》· 第一集">
+      <span class="proj-badge">师</span>
+      <span class="txt"><b>师尊别砍我系统</b><em>EP1 · 8 片段 · 94.0s</em></span>
+      <svg class="icon icon-12" style="color:var(--ink-4)"><use href="#i-chevron-down"/></svg>
+    </button>
+
+    <nav class="sb-nav">
+      <div class="sb-group">
+        <p class="sb-group-title"><span class="txt">流水线</span><span class="rule"></span></p>
+        <button class="nav-item" data-stage="S1" data-label="S1 人物锚点" data-todo="/projects/{pid}/steps/S1/run">
+          <span class="stage-no">01</span><span class="nav-label">人物锚点</span>
+        </button>
+        <button class="nav-item" data-stage="S2" data-label="S2 分集剧情" data-todo="/episodes/{eid}/steps/S2/run">
+          <span class="stage-no">02</span><span class="nav-label">分集剧情</span>
+        </button>
+        <button class="nav-item is-active" data-stage="S3" data-label="S3 剧本分镜 · 当前">
+          <span class="stage-no">03</span><span class="nav-label">剧本分镜</span>
+        </button>
+        <button class="nav-item" data-stage="S4" data-label="S4 终剪提示词" data-todo="/clips/{cid}/steps/S4/run">
+          <span class="stage-no">04</span><span class="nav-label">终剪提示词</span>
+        </button>
+        <button class="nav-item" data-stage="S5" data-label="S5 人物卡与参考资产" data-todo="/projects/{pid}/steps/S5/run">
+          <span class="stage-no">05</span><span class="nav-label">人物卡 &amp; 参考资产</span>
+        </button>
+      </div>
+
+      <div class="sb-group">
+        <p class="sb-group-title"><span class="txt">看板</span><span class="rule"></span></p>
+        <button class="nav-item is-active" data-view="table" data-label="分镜表">
+          <svg class="icon"><use href="#i-layers"/></svg><span class="nav-label">分镜表</span>
+        </button>
+        <button class="nav-item" data-view="cost" data-label="成本台账">
+          <svg class="icon"><use href="#i-receipt"/></svg><span class="nav-label">成本台账</span>
+          <span class="nav-meta money">¥40.00</span>
+        </button>
+        <button class="nav-item" data-view="wall" data-label="镜头墙 · 待接入" style="opacity:.55">
+          <svg class="icon"><use href="#i-grid"/></svg><span class="nav-label">镜头墙</span>
+          <span class="nav-meta">待接入</span>
+        </button>
+      </div>
+
+      <div class="sb-group" data-writable>
+        <p class="sb-group-title"><span class="txt">全局知识层</span><span class="rule"></span></p>
+        <button class="nav-item" data-label="Skill 规则库 · 仅超管可写" data-todo="/skills*">
+          <svg class="icon" style="color:var(--violet)"><use href="#i-cpu"/></svg>
+          <span class="nav-label">Skill 规则库</span>
+        </button>
+      </div>
+    </nav>
+
+    <div class="sb-foot">
+      <div class="sb-user">
+        <span class="avatar" id="userAvatar">L</span>
+        <span class="txt"><b id="userEmail">lead@manju.studio</b><em id="userRole">lead · 可写项目</em></span>
+        <a class="out" href="login.html" title="退出登录" aria-label="退出登录">
+          <svg class="icon icon-14"><use href="#i-log-out"/></svg>
+        </a>
+      </div>
+    </div>
+  </aside>
+
+  <button class="sb-handle" id="sbHandle" title="展开侧栏 (⌘B)" aria-label="展开侧栏">
+    <svg class="icon icon-12"><use href="#i-panel-open"/></svg>
+  </button>
+
+  <!-- ==================== 主区 ==================== -->
+  <div class="main">
+    <header class="topbar">
+      <div class="crumbs">
+        <button class="proj-name">师尊别砍我系统 <svg class="icon icon-12"><use href="#i-chevron-down"/></svg></button>
+        <span class="sep">/</span>
+        <span class="here">EP1 · 第一集</span>
+      </div>
+      <span class="top-badge"><span class="dot dot-ok"></span>分镜已就绪</span>
+      <span class="top-badge" style="border-color:var(--line-2);background:var(--s1);color:var(--ink-3)"
+            title="SSE /projects/{pid}/events 尚未接入（02 §11），按 02 §8 降级为轮询">
+        <span class="dot" style="background:var(--ink-4)"></span>轮询 2s
+      </span>
+      <span class="top-badge" id="readonlyBadge" style="display:none;border-color:rgba(167,139,250,.24);background:rgba(167,139,250,.08);color:var(--violet)"
+            title="capabilities.can_write_global=true / can_write_any_project=false">内容只读</span>
+      <span class="spacer"></span>
+
+      <div class="presence" title="presence.online · 3 人">
+        <span class="avatar">L</span>
+        <span class="avatar violet">W</span>
+        <span class="avatar amber">Z</span>
+      </div>
+      <button class="btn btn-icon btn-ghost" id="gridToggle" title="对齐栅格 (G)" aria-label="切换对齐栅格">
+        <svg class="icon"><use href="#i-grid"/></svg>
+      </button>
+      <span class="avatar" title="lead@manju.studio">L</span>
+    </header>
+
+    <div class="stage">
+
+      <!-- ---------- 分镜表（主视图） ---------- -->
+      <section class="view" id="view-table" aria-label="分镜表">
+        <div class="board">
+          <div class="board-head">
+            <h2>分镜表</h2>
+            <span class="chip">EP1</span>
+            <span class="chip" id="chipCounts">8 片段 · 94.00s</span>
+            <span class="spacer"></span>
+            <div class="seg" role="tablist" aria-label="视图">
+              <button role="tab" data-view="table" aria-selected="true"><svg class="icon icon-12"><use href="#i-layers"/></svg>分镜表</button>
+              <button role="tab" data-view="cost" aria-selected="false"><svg class="icon icon-12"><use href="#i-receipt"/></svg>成本台账</button>
+              <button role="tab" data-view="wall" aria-selected="false"><svg class="icon icon-12"><use href="#i-grid"/></svg>镜头墙</button>
+            </div>
+          </div>
+
+          <div class="board-meta">
+            <span class="chip chip-ok" id="chipSeq">时序闭合 8/8</span>
+            <span class="chip" id="chipLine">台词 21 条</span>
+            <span class="chip" id="chipSlot">槽位 36 · 已指派 0</span>
+            <span class="chip" id="chipAcc">验收点 13 · 覆盖 3/8 片段</span>
+          </div>
+
+          <div class="boundary">
+            <span class="item"><svg class="icon"><use href="#i-check"/></svg><span class="ok">GET /episodes/{eid}/clips · GET /clips/{cid}</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">标题列需 clip.title（未落库，此处为 seed 解析值）</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-check"/></svg><span class="ok">缩略图：本地 480×270 mock，接 GET /assets/{id}.thumb_url 即换</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">槽位图仍缺 ref_slots[].asset_id</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">生成 / Job / SSE 未接入</span></span>
+          </div>
+
+          <div class="rail-filters" style="margin-bottom:10px">
+            <button class="filter" data-filter="all" aria-pressed="true">全部</button>
+            <button class="filter" data-filter="approved" aria-pressed="false">已通过</button>
+            <button class="filter" data-filter="review" aria-pressed="false">质检中</button>
+            <button class="filter" data-filter="rejected" aria-pressed="false">未通过</button>
+            <button class="filter" data-filter="none" aria-pressed="false">未生成</button>
+          </div>
+
+          <table class="sbtable">
+            <colgroup>
+              <col style="width:5%" /><col style="width:5%" /><col style="width:37%" /><col style="width:7.5%" /><col style="width:6%" />
+              <col style="width:6%" /><col style="width:7%" /><col style="width:7%" />
+              <col style="width:9.5%" /><col style="width:7%" /><col style="width:3%" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>#</th><th><span class="sr-only">缩略图</span></th><th>标题</th><th class="r">时长</th><th class="c">镜头</th>
+                <th class="c">台词</th><th class="c">槽位</th><th class="c">验收</th>
+                <th>状态</th><th class="c">版本</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="sbBody"></tbody>
+          </table>
+
+          <div class="rail-foot" style="border-top:1px solid var(--line-2);margin-top:2px;padding-top:8px">
+            <span id="sbFoot">合计 94.00s · 8 片段 · 单片段 ≤ 15s ✅</span>
+            <span>演示数据 · 全部取自 seed</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 成本台账 ---------- -->
+      <section class="view" id="view-cost" hidden aria-label="成本台账">
+        <div class="board">
+          <div class="board-head">
+            <h2>成本台账</h2>
+            <span class="chip">GET /projects/{pid}/cost</span>
+            <span class="spacer"></span>
+            <div class="seg" role="tablist" aria-label="分组">
+              <button role="tab" data-group="model" aria-selected="true">按 model</button>
+              <button role="tab" data-group="day" aria-selected="false" disabled title="fixture 无时间戳；接口本身支持 day">按 day</button>
+            </div>
+          </div>
+
+          <div class="boundary">
+            <span class="item"><svg class="icon"><use href="#i-check"/></svg><span class="ok">数据源只有 revision.cost，不重算</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">group_by 只支持 model / day，传 stage 会 422（02 §11 取舍 1）</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">fixture 仅含视频通道，无图像 / 文本 revision</span></span>
+          </div>
+
+          <div class="stat-row" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+            <div class="stat"><div class="k"><svg class="icon icon-12"><use href="#i-wallet"/></svg>总花费</div><div class="v amber">¥40.00</div><div class="n">total.cost</div></div>
+            <div class="stat"><div class="k"><svg class="icon icon-12"><use href="#i-receipt"/></svg>调用</div><div class="v">17</div><div class="n">total.calls</div></div>
+            <div class="stat"><div class="k"><svg class="icon icon-12"><use href="#i-activity"/></svg>计费 token</div><div class="v accent">4,572,900</div><div class="n">item.tokens</div></div>
+            <div class="stat"><div class="k"><svg class="icon icon-12"><use href="#i-film"/></svg>视频秒数</div><div class="v">211.0<small>s</small></div><div class="n">item.seconds</div></div>
+          </div>
+
+          <div class="table-panel">
+            <table class="tbl">
+              <thead>
+                <tr><th>key</th><th style="text-align:right">calls</th><th style="text-align:right">tokens</th><th style="text-align:right">seconds</th><th style="text-align:right">cost</th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="mono">seedance-2.0-mini</td><td class="num">17</td><td class="num">4,572,900</td><td class="num">211.00</td><td class="num money">¥40.000000</td></tr>
+                <tr><td class="mono muted">total</td><td class="num muted">17</td><td class="num muted">—</td><td class="num muted">—</td><td class="num money">¥40.000000</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="mono faint" style="font-size:9.5px;margin-top:10px;line-height:1.7">
+            注：amount 为 string 六位小数（00 §3.3）；items[].key 在 group_by=day 时是 UTC 日期，前端负责转本地。
+          </p>
+        </div>
+      </section>
+
+      <!-- ---------- 镜头墙 ---------- -->
+      <section class="view" id="view-wall" hidden aria-label="镜头墙">
+        <div class="board">
+          <div class="board-head">
+            <h2>镜头墙</h2>
+            <span class="chip" id="wallCounts">8 片段 · 94.00s</span>
+            <span class="chip">纯 CSS Grid · 不引画布库</span>
+            <span class="spacer"></span>
+            <div class="seg" role="tablist" aria-label="视图">
+              <button role="tab" data-view="table" aria-selected="false"><svg class="icon icon-12"><use href="#i-layers"/></svg>分镜表</button>
+              <button role="tab" data-view="cost" aria-selected="false"><svg class="icon icon-12"><use href="#i-receipt"/></svg>成本台账</button>
+              <button role="tab" data-view="wall" aria-selected="true"><svg class="icon icon-12"><use href="#i-grid"/></svg>镜头墙</button>
+            </div>
+          </div>
+
+          <div class="boundary">
+            <span class="item"><svg class="icon"><use href="#i-check"/></svg><span class="ok">缩略图：本地 480×270 mock（20–33 KB/张），接 GET /assets/{id}.thumb_url 直接换 src</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">每片段金额缺 group_by=clip，卡片右下角改显示版本数</span></span>
+            <span class="sep">|</span>
+            <span class="item"><svg class="icon"><use href="#i-alert"/></svg><span class="warn">槽位图仍缺 ref_slots[].asset_id</span></span>
+          </div>
+
+          <div class="wall" id="wall"></div>
+
+          <div class="rail-foot" style="border-top:1px solid var(--line-2);margin-top:14px;padding-top:8px">
+            <span id="wallFoot">8 片段 · 94.00s · 点击任一卡片回到分镜表并展开</span>
+            <span>验收点色块：绿 pass / 红 fail / 灰 待判</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="col-guides" aria-hidden="true"></div>
+<div class="grid-hud"><span>GRID</span><b>24</b><span style="color:var(--ink-4)">/</span><span>COL</span><b>12</b><span style="color:var(--ink-4)">/</span><span>GUTTER</span><b>24</b></div>
+
+<!-- ==================== 付费点（预览 · 接口未接入） ==================== -->
+<div class="modal" id="payModal" hidden role="dialog" aria-modal="true" aria-labelledby="payTitle">
+  <div class="modal-scrim" data-close></div>
+  <div class="modal-card">
+    <div class="modal-head">
+      <svg class="icon" style="color:var(--amber)"><use href="#i-zap"/></svg>
+      <span class="ttl" id="payTitle">付费点确认</span>
+      <span class="chip chip-wait">接口未接入</span>
+      <span class="sub mono">POST /clips/{cid}/generate</span>
+      <span class="spacer"></span>
+      <button class="modal-close" data-close aria-label="关闭"><svg class="icon"><use href="#i-x"/></svg></button>
+    </div>
+
+    <div class="modal-body">
+      <div class="price-hero">
+        <span class="num"><small>¥</small>2.27</span>
+        <span class="exp">草稿 · 12.00s<br />按 revision.cost 反推，仅作视觉演示</span>
+        <span class="spacer"></span>
+        <span class="calc"><b>260,100 tok</b>21,675 tok/s × 12s</span>
+      </div>
+
+      <div class="facts">
+        <div class="fact"><span class="k">请求</span><span class="v">res=draft · Idempotency-Key · If-Match</span></div>
+        <div class="fact"><span class="k">通道</span><span class="v warn">02 §5.3 写 draft→mini 480P，PRD §8 与 fixture 是 720p —— 待拍板</span></div>
+        <div class="fact"><span class="k">可用字段</span><span class="v">prompt_sha256 · prompt_head · tokens_est · cost_est · duration_s · ref_slots</span></div>
+        <div class="fact"><span class="k">槽位</span><span class="v">4 个 · asset_id 全为 null（仅 asset_ref）</span></div>
+      </div>
+
+      <div class="modal-note">
+        <svg class="icon icon-14"><use href="#i-shield"/></svg>
+        <span>确认后进 <span class="mono">waiting_confirm</span>，拒绝则 job 置 <span class="mono">cancelled</span> 且零计费。此页不实现该流程 —— <span class="mono">/jobs*</span> 未建路由。</span>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <span class="note">仅演示弹窗结构，按钮不发起请求</span>
+      <span class="spacer"></span>
+      <button class="btn btn-quiet" data-close>拒绝</button>
+      <button class="btn btn-primary" data-todo="/clips/{cid}/generate + /jobs/{jid}/confirm">确认生成</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script id="sb-data" type="application/json">[{"idx":1,"sourceIdx":1,"title":"荒诞接生与功德圆满","inserted":false,"duration":"12.00","status":"approved","promptLen":2309,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的实景：破败的猪圈木棚、东倒西歪的旧木栅栏、大片粘稠的黑泥潭与积水、翻起的…","shots":[{"no":1,"start":"0","end":"3.5","desc":"从远景起步的连续急推，全程不许停——第一帧是极远景：整片阴风荒郊的破败猪窝都在画面里，破猪圈…"},{"no":2,"start":"3.5","end":"6.5","desc":"硬切。整个画面变成一张铺满整帧的半透明幽蓝金色全息光屏——屏幕边缘向内弯曲、带出弧面的立体感…"},{"no":3,"start":"6.5","end":"9.0","desc":"仍然是界面即画幅，但摄影机在界面内部缓慢上推并轻微右移——从光屏全貌推近到金色碎片与进度条右…"},{"no":4,"start":"9.0","end":"12.0","desc":"硬切回猪窝。低角度贴脸特写：徒弟猛地从瘫坐里撑起整个上身，用戴亮蓝手套的手一把扯掉嘴上的透明…"}],"dialogue":[{"speaker":"清冷机械女声","text":"恭喜宿主完成任务——给单身八百年的母猪妖接生并伺候月子！","shot":2,"screen":false},{"speaker":"清冷机械女声","text":"恭喜宿主获得造化玉碟的皮屑、的细胞膜、的第108代玄孙的腿毛！进度9…","shot":3,"screen":false}],"acceptance":[{"id":"a1","criterion":"开场禁空景","result":"pass"},{"id":"a2","criterion":"功德环全程在画","result":"pass"},{"id":"a3","criterion":"扯掉氧气罩","result":"pass"},{"id":"a4","criterion":"远景急推","result":"pass"},{"id":"a5","criterion":"台词回到剧本原文","result":"pass"}],"slots":[{"idx":1,"role":"实景","ref":"sk1_scene.png"},{"idx":2,"role":"造型锚","ref":"sk1_tudi.png"},{"idx":3,"role":"造型锚","ref":"sk1_boar.png"},{"idx":4,"role":"构图锚","ref":"sk1_panel.png"}],"revCount":2,"latest":{"cost":"2.27","seconds":"12","tokens":260100,"latencyMs":180000,"model":"seedance-2.0-mini","res":"720p","samples":null,"freeze":0,"avg":28.0,"max":49.63}},{"idx":2,"sourceIdx":2,"title":"暴怒发飙与系统\"砍一刀\"","inserted":false,"duration":"9.00","status":"approved","promptLen":1796,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败的猪圈木棚、东倒西歪的旧木栅栏、大片粘稠的黑泥潭与积水、翻起的…","shots":[{"no":1,"start":"0","end":"4.5","desc":"中景。徒弟从泥里猛地暴跳起来、半跪着撑住身体，双手从泥潭里抄起一大坨发臭的黑泥，抡圆胳膊把泥…"},{"no":2,"start":"4.5","end":"7.5","desc":"中近景，镜头切到她的侧前方。她的咆哮还没落下，空气里「DUANG」地弹出一声滑稽的弹簧音，系…"},{"no":3,"start":"7.5","end":"9.0","desc":"双人中景。徒弟猛地拧过整个上身、把一只沾满黑泥的亮蓝手套扬起来、手指直直指向悬在半空的小仙女…"}],"dialogue":[{"speaker":"徒弟","text":"退钱！！！我都给母猪伺候三年月子了！老娘是魔修啊！谁家魔修天天给妖兽…","shot":null,"screen":true},{"speaker":"系统拟人","text":"亲~把砍一刀分享给三千魔头，马上就能提现！只差最后一刀哦亲！","shot":null,"screen":true},{"speaker":"镜头3 无台词、无口型","text":"拧身＋扬手＋直指","shot":3,"screen":false}],"acceptance":[{"id":"a1","criterion":"功德环全程在画","result":"pass"},{"id":"a2","criterion":"三拍全在，且镜头3 的\"怒指\"没被切点吃掉","result":"unknown"},{"id":"a3","criterion":"三拍全在","result":"pass"}],"slots":[{"idx":1,"role":"实景","ref":"sk2_scene.png"},{"idx":2,"role":"造型锚","ref":"sk2_tudi.png"},{"idx":3,"role":"造型锚","ref":"sk2_sysgirl.png"}],"revCount":1,"latest":{"cost":"1.71","seconds":"9","tokens":195300,"latencyMs":186000,"model":"seedance-2.0-mini","res":"720p","samples":17,"freeze":0,"avg":23.78,"max":36.59}},{"idx":3,"sourceIdx":3,"title":"虚空粉碎！滑板师尊登场","inserted":false,"duration":"15.00","status":"review","promptLen":1903,"promptHead":"将参考图二中的银白长发高束、戴黑框墨镜、身穿月白宽袍大袖的老者定义为师尊，他一手托着一只红白竖条纹的炸鸡全家桶，另一手拿…","shots":[{"no":1,"start":"0","end":"2.5","desc":"仰拍，画面从下往上对着荒郊夜空，破猪圈的棚顶与枯树压在画面下缘。夜空像镜面一样咔嚓碎裂，白色…"},{"no":2,"start":"2.5","end":"5.0","desc":"中近景，从下往上跟拍悬停在半空的师尊。他咬住红色吸管用力嘬了一大口，腮帮子凹下去，随后慢悠悠…"},{"no":3,"start":"5.0","end":"7.0","desc":"低机位中景，镜头切回地面，与后一个镜头的俯视形成对位。徒弟跪坐在泥潭里仰头朝上，系统拟人缩在…"},{"no":4,"start":"7.0","end":"8.5","desc":"特写，切回悬停在半空的师尊。他眉毛往上一挑，居高临下地俯视下方，嘴唇随话音开合。台词：「脑后…"},{"no":5,"start":"8.5","end":"10.5","desc":"大俯拍全景，镜头拔到师尊视点的正上方往下看。师尊的黑气长板压在画面上缘，下方的黑泥潭、跪坐的…"},{"no":6,"start":"10.5","end":"15","desc":"低机位回拍地面。徒弟一个鲤鱼打挺从泥里弹起来、狼狈站定，抬起一只沾满黑泥的亮蓝手套，直直指向…"}],"dialogue":[{"speaker":"unknown","text":"徒儿，大半夜在猪窝嚎啥呢？","shot":2,"screen":true},{"speaker":"unknown","text":"你再不干点反派正事，","shot":3,"screen":true},{"speaker":"unknown","text":"脑后那功德环都快比肩三清了！","shot":4,"screen":true},{"speaker":"unknown","text":"不知道的还以为咱魔宗改庙堂了！","shot":5,"screen":true},{"speaker":"unknown","text":"师父！有脏东西！话说……为什么修仙界会有肯德基啊？！","shot":6,"screen":true}],"acceptance":[],"slots":[{"idx":1,"role":"实景","ref":"sk3_scene.png"},{"idx":2,"role":"造型锚","ref":"sk3_master.png"},{"idx":3,"role":"造型锚","ref":"sk3_board.png"},{"idx":4,"role":"造型锚","ref":"sk3_tudi.png"},{"idx":5,"role":"造型锚","ref":"sk3_sysgirl.png"}],"revCount":2,"latest":{"cost":"2.84","seconds":"15","tokens":324900,"latencyMs":180000,"model":"seedance-2.0-mini","res":"720p","samples":null,"freeze":null,"avg":null,"max":null}},{"idx":4,"sourceIdx":4,"title":"师尊暴怒，万鬼锁定！","inserted":false,"duration":"12.00","status":"rejected","promptLen":2831,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败猪圈木棚、东倒西歪的旧木栅栏、大片黑泥潭与积水、枯树剪影，全程…","shots":[{"no":1,"start":"0","end":"3.0","desc":"面部极特写。镜头贴着他的脸，从可乐杯与红吸管的位置慢慢向上摇。他正咬着吸管在嘬，动作当场停住…"},{"no":2,"start":"3.0","end":"5.0","desc":"中近景，全程不切。他抬起那只托着炸鸡桶的手，炸鸡桶完整地露在画面里；食指与拇指从桶里捻起一块…"},{"no":3,"start":"5.0","end":"7.5","desc":"低机位全景，镜头贴着地面向上仰。他反手从脚底翻滚的黑气里把一杆万魂幡整个抽出来——手里先是短…"},{"no":4,"start":"7.5","end":"9.5","desc":"低机位仰拍全景，承接上一镜、接着把化形走完。棱线先亮起一线幽紫，幽紫顺着棱线往下爬、爬满整条…"},{"no":5,"start":"9.5","end":"12.0","desc":"狂暴黑雾中的中近景。画面一开始就被翻滚的黑色魔气灌满；数十只干枯惨白的鬼爪从黑雾深处伸出来，…"}],"dialogue":[{"speaker":"师尊","text":"何方孽障，敢缠我徒儿？！","shot":null,"screen":true}],"acceptance":[],"slots":[{"idx":1,"role":"实景","ref":"sk_pigpen_night.png"},{"idx":2,"role":"造型锚","ref":"sk_master_comedy.png"},{"idx":3,"role":"造型锚","ref":"sk_blade.png"},{"idx":4,"role":"造型锚","ref":"sk_lockbox.png"},{"idx":5,"role":"造型锚","ref":"sk_sysgirl.png"}],"revCount":3,"latest":{"cost":"2.27","seconds":"12","tokens":260100,"latencyMs":270000,"model":"seedance-2.0-mini","res":"720p","samples":23,"freeze":0,"avg":31.17,"max":58.21}},{"idx":5,"sourceIdx":5,"title":"概念体照砍！极限骤停","inserted":false,"duration":"12.00","status":"review","promptLen":2732,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败猪圈木棚、东倒西歪的旧木栅栏、大片黑泥潭与积水、枯树剪影，全程…","shots":[{"no":1,"start":"0","end":"2.5","desc":"低机位仰拍。刀是从上往下砍下来的：第 0 帧那柄黑气巨刃已经在画面上方、刀口朝下、正在下落，…"},{"no":2,"start":"2.5","end":"4.5","desc":"中近景，镜头切到地面。系统拟人双眼向外凸出、嘴张得很大在哭喊，两条短腿在半空乱蹬、身体乱翻；…"},{"no":3,"start":"4.5","end":"6.0","desc":"低机位中景，镜头从徒弟的左侧后方缓缓横移、绕到她的正面偏侧；随着镜头绕过去，背景里的破猪圈木…"},{"no":4,"start":"6.0","end":"8.0","desc":"侧向极近特写。本镜的画面主体是\"徒弟与刃口的那一隙\"，不是水面：徒弟本人就在画面下方偏中位置…"},{"no":5,"start":"8.0","end":"12.0","desc":"中景三人。灭世魔气在万分之一秒内整个向内一收、散成一阵拂面微风，只把师尊的袍摆与徒弟的发梢轻…"}],"dialogue":[{"speaker":"系统拟人","text":"这老头怎么能看到我？！","shot":null,"screen":true},{"speaker":"师尊","text":"快滚。再敢缠着我徒儿，本座把你塞进幡里炼成抹布。","shot":null,"screen":true}],"acceptance":[],"slots":[{"idx":1,"role":"实景","ref":"sk5_scene.png"},{"idx":2,"role":"造型锚","ref":"sk5_blade.png"},{"idx":3,"role":"造型锚","ref":"sk5_tudi.png"},{"idx":4,"role":"造型锚","ref":"sk5_sysgirl.png"},{"idx":5,"role":"造型锚","ref":"sk5_master.png"}],"revCount":4,"latest":{"cost":"2.27","seconds":"12","tokens":260100,"latencyMs":240000,"model":"seedance-2.0-mini","res":"720p","samples":23,"freeze":0,"avg":28.58,"max":45.58}},{"idx":6,"sourceIdx":6,"title":"作者境？不，为师是\"普通人\"","inserted":false,"duration":"15.00","status":"review","promptLen":2607,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败猪圈木棚、东倒西歪的旧木栅栏、大片黑泥潭与积水、枯树剪影与天边…","shots":[{"no":1,"start":"0","end":"2.0","desc":"中景，镜头贴着泥潭表面、与她的视线齐平。徒弟双手撑在泥里，从画面右侧连滚带爬地往前凑，双膝一…"},{"no":2,"start":"2.0","end":"7.0","desc":"中近景，镜头切到她的正面偏侧、略微仰拍。她跪直上身、双手交叠在膝上，仰起头朝上追问；她的肩膀…"},{"no":3,"start":"7.0","end":"10.5","desc":"中景双人。师尊随手把手里那杆收拢的黑幡往自己脚下一扔，幡碰到泥地的一瞬间就摊平、重新化成一块…"},{"no":4,"start":"10.5","end":"13.0","desc":"侧向特写。镜头绕到师尊的左侧并同时压低；随着镜头绕过去，他身后的破猪圈木棚从画面右侧滑到他的…"},{"no":5,"start":"13.0","end":"15.0","desc":"中近景，镜头切回徒弟，正面偏侧。她的表情整个垮掉：肩膀往两边塌下去、双手从膝上滑落到腿侧、脖…"}],"dialogue":[{"speaker":"徒弟","text":"师父……您老人家到底是什么境界？莫非你是传说中的……作者境？！","shot":null,"screen":true},{"speaker":"师尊","text":"什么作者境，听都没听过。为师啊，就是个普·通·人。","shot":null,"screen":true},{"speaker":"师尊","text":"普天之下，通天之人。简称为，普通人。","shot":null,"screen":true},{"speaker":"徒弟","text":"……6。","shot":null,"screen":true}],"acceptance":[],"slots":[{"idx":1,"role":"实景","ref":"sk6_scene.png"},{"idx":2,"role":"造型锚","ref":"sk6_master.png"},{"idx":3,"role":"造型锚","ref":"sk6_tudi.png"},{"idx":4,"role":"造型锚","ref":"sk6_board.png"},{"idx":5,"role":"造型锚","ref":"sk6_props.png"},{"idx":6,"role":"造型锚","ref":"sk6_sysgirl.png"}],"revCount":2,"latest":{"cost":"2.85","seconds":"15","tokens":324900,"latencyMs":210000,"model":"seedance-2.0-mini","res":"720p","samples":null,"freeze":0,"avg":23.83,"max":49.25}},{"idx":7,"sourceIdx":8,"title":"插入片段·徒弟的自嘲反应","inserted":true,"duration":"4.00","status":"review","promptLen":1311,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败猪圈木棚、东倒西歪的旧木栅栏、大片黑泥潭与积水、枯树剪影与天边…","shots":[{"no":1,"start":"0","end":"1.5","desc":"中景，镜头在她的侧面偏前方。她还保持着刚才往上凑的姿势——脖子往前伸着、下巴微微抬着、眼睛里…"},{"no":2,"start":"1.5","end":"4.0","desc":"中近景。她的肩膀一点一点往两边垮下去、整个人往下缩了一截，脖子一软、头往一侧歪；嘴角先抽了一…"}],"dialogue":[{"speaker":"徒弟","text":"你是普通人，那我算什么垃圾。","shot":null,"screen":true}],"acceptance":[],"slots":[{"idx":1,"role":"实景","ref":"sk8_scene.png"},{"idx":2,"role":"造型锚","ref":"sk8_tudi.png"},{"idx":3,"role":"造型锚","ref":"sk8_sysgirl.png"}],"revCount":1,"latest":{"cost":"0.76","seconds":"4","tokens":87300,"latencyMs":162000,"model":"seedance-2.0-mini","res":"720p","samples":null,"freeze":0,"avg":9.87,"max":16.69}},{"idx":8,"sourceIdx":7,"title":"祖传反派狞笑！魔气封镜","inserted":false,"duration":"15.00","status":"rejected","promptLen":2243,"promptHead":"将参考图一中的荒郊猪窝泥潭夜景作为整个片段唯一的场景：破败猪圈木棚、东倒西歪的旧木栅栏、大片黑泥潭与积水、枯树剪影与天边…","shots":[{"no":1,"start":"0","end":"4.5","desc":"中近景，徒弟在画面偏左，系统拟人从她肩后探出来。系统拟人从徒弟肩膀后面颤颤巍巍地、一点一点升…"},{"no":2,"start":"4.5","end":"7.0","desc":"中景双人，镜头切到两人的侧面。红色警报光在一瞬间全部熄灭，风声也停了，整个猪圈死一样安静。师…"},{"no":3,"start":"7.0","end":"11.0","desc":"中景双人，正面。徒弟双手猛地抬起来、一根一根把指节掰响，关节一声接一声地脆响；黑色魔气从她的…"},{"no":4,"start":"11.0","end":"15.0","desc":"中景双人，比上一镜更近、正面。两个人的脸在同一时刻裂开一模一样、祖传的坏人狞笑：两张嘴角同时…"}],"dialogue":[{"speaker":"系统拟人","text":"警报！隔壁正道气运之子正在秘境开启上古剑神传承，神级机缘即将被认主！","shot":null,"screen":true},{"speaker":"徒弟","text":"师父，那破玉碟我是砍不动了……但隔壁这机缘嘛……","shot":null,"screen":true},{"speaker":"师尊","text":"走！为师今天带你去给正道之子——上一课！","shot":null,"screen":true}],"acceptance":[{"id":"a1","criterion":"师尊露出八颗白牙，徒弟隔着透明氧气罩同样咧到最大——…","result":"unknown"},{"id":"a2","criterion":"定格是全片唯一一次","result":"unknown"},{"id":"a3","criterion":"两人各露八颗白牙","result":"fail"},{"id":"a4","criterion":"末段定格","result":"pass"},{"id":"a5","criterion":"徒弟露八颗白牙","result":"fail"}],"slots":[{"idx":1,"role":"实景","ref":"sk7_scene.png"},{"idx":2,"role":"造型锚","ref":"sk7_tudi.png"},{"idx":3,"role":"造型锚","ref":"sk7_master.png"},{"idx":4,"role":"造型锚","ref":"sk7_sysgirl.png"},{"idx":5,"role":"造型锚","ref":"sk7_board.png"}],"revCount":2,"latest":{"cost":"2.85","seconds":"15","tokens":324900,"latencyMs":198000,"model":"seedance-2.0-mini","res":"720p","samples":29,"freeze":null,"avg":20.55,"max":43.56}}]</script>
+<script>
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const DATA = JSON.parse($('#sb-data').textContent);
+  const params = new URLSearchParams(location.search);
+
+  /* ---------------- 身份：capabilities 决定显隐，不靠角色名 ---------------- */
+  const role = params.get('role') || 'lead';
+  if (role === 'admin') {
+    document.body.classList.add('admin-view');
+    $('#readonlyBadge').style.display = '';
+    $('#userEmail').textContent = 'admin@manju.studio';
+    $('#userRole').textContent = 'admin · 内容只读';
+    $('#userAvatar').className = 'avatar violet';
+    $('#userAvatar').textContent = 'A';
+  } else if (role === 'user') {
+    $('#userEmail').textContent = 'member@manju.studio';
+    $('#userRole').textContent = 'user · 可写项目';
+    $('#userAvatar').className = 'avatar amber';
+    $('#userAvatar').textContent = 'U';
+  }
+
+  /* ---------------- 状态口径（02 §6.2） ---------------- */
+  const STATUS = {
+    draft:      { label: '未生成', cls: 'chip' },
+    prompted:   { label: '待生成', cls: 'chip' },
+    generating: { label: '生成中', cls: 'chip chip-wait' },
+    review:     { label: '质检中', cls: 'chip chip-wait' },
+    approved:   { label: '已通过', cls: 'chip chip-ok' },
+    rejected:   { label: '未通过', cls: 'chip chip-fail' }
+  };
+  const GROUP = { approved: 'approved', review: 'review', rejected: 'rejected', none: 'draft,prompted,generating' };
+
+  /* ---------------- 汇总（全部由字段算，不写死） ---------------- */
+  const totalDur = DATA.reduce((s, c) => s + Number(c.duration), 0);
+  const totalDlg = DATA.reduce((s, c) => s + c.dialogue.length, 0);
+  const totalSlot = DATA.reduce((s, c) => s + c.slots.length, 0);
+  const totalAcc = DATA.reduce((s, c) => s + c.acceptance.length, 0);
+  const accClips = DATA.filter((c) => c.acceptance.length > 0).length;
+  const seqOk = DATA.filter((c) => {
+    const sum = c.shots.reduce((s, sh) => s + (Number(sh.end) - Number(sh.start)), 0);
+    return Math.abs(sum - Number(c.duration)) <= 0.05;
+  }).length;
+
+  $('#chipCounts').textContent = `${DATA.length} 片段 · ${totalDur.toFixed(2)}s`;
+  $('#chipSeq').textContent = `时序闭合 ${seqOk}/${DATA.length}`;
+  $('#chipSeq').className = 'chip ' + (seqOk === DATA.length ? 'chip-ok' : 'chip-fail');
+  $('#chipLine').textContent = `台词 ${totalDlg} 条`;
+  $('#chipSlot').textContent = `槽位 ${totalSlot} · 已指派 0`;
+  $('#chipAcc').textContent = `验收点 ${totalAcc} · 覆盖 ${accClips}/${DATA.length} 片段`;
+  $('#sbFoot').textContent = `合计 ${totalDur.toFixed(2)}s · ${DATA.length} 片段 · 单片段 ≤ 15s ${DATA.every((c) => Number(c.duration) <= 15) ? '✅' : '❌'}`;
+
+  /* ---------------- 分镜表渲染 ---------------- */
+  const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const thumbOf = (c) => `assets/thumb-${String(c.idx).padStart(2, '0')}.jpg`;
+  const accStat = (c) => {
+    if (!c.acceptance.length) return { text: '—', cls: 'empty' };
+    const known = c.acceptance.filter((a) => a.result !== 'unknown');
+    const pass = known.filter((a) => a.result === 'pass').length;
+    return {
+      text: `${pass}/${c.acceptance.length}`,
+      cls: pass === c.acceptance.length ? 'accent' : pass ? 'amber' : 'rose'
+    };
+  };
+
+  const rowsHtml = DATA.map((c) => {
+    const st = STATUS[c.status] || STATUS.draft;
+    const acc = accStat(c);
+    const seq = (() => {
+      const sum = c.shots.reduce((s, sh) => s + (Number(sh.end) - Number(sh.start)), 0);
+      return Math.abs(sum - Number(c.duration)) <= 0.05;
+    })();
+    return `
+      <tr class="sb-row" data-idx="${c.idx}" data-status="${c.status}">
+        <td>
+          <span class="ix"><b>${String(c.idx).padStart(2, '0')}</b>
+          ${c.sourceIdx !== c.idx ? `<span class="src" title="source_idx ${c.sourceIdx}（播放序 ≠ 源片段号）">源${String(c.sourceIdx).padStart(2, '0')}</span>` : ''}
+          </span>
+        </td>
+        <td class="thumbcell"><img class="thumb" src="${thumbOf(c)}" alt="${esc(c.title)}" loading="lazy" decoding="async" /></td>
+        <td><div class="ttl">${esc(c.title)}</div></td>
+        <td class="r num">${c.duration}s</td>
+        <td class="c num">${c.shots.length}</td>
+        <td class="c num">${c.dialogue.length}</td>
+        <td class="c num" title="${c.slots.length} 个槽位，asset_id 全为 null">0/${c.slots.length}</td>
+        <td class="c num ${acc.cls}">${acc.text}</td>
+        <td><span class="${st.cls}">${st.label}</span></td>
+        <td class="c num">${c.revCount} 版</td>
+        <td class="c"><svg class="icon icon-12 caret"><use href="#i-chevron-down"/></svg></td>
+      </tr>
+      <tr class="sb-detail" hidden><td colspan="11">${detailHtml(c, seq)}</td></tr>`;
+  }).join('');
+
+  function detailHtml(c, seq) {
+    const L = c.latest;
+    const slots = c.slots.map((s) => `
+      <div class="slot-ph">
+        <span class="top"><span class="role">槽位 ${s.idx} · ${esc(s.role)}</span><span class="na">asset_id: null</span></span>
+        <span class="ref" title="${esc(s.ref)}">${esc(s.ref)}</span>
+      </div>`).join('');
+    const shots = c.shots.map((s) => `
+      <div class="shot-lite">
+        <span class="no">${String(s.no).padStart(2, '0')}</span>
+        <span class="t">${s.start}–${s.end}s</span>
+        <span class="d">${esc(s.desc)}</span>
+      </div>`).join('');
+    const dlg = c.dialogue.length ? c.dialogue.map((d) => `
+      <div class="row2">
+        <span class="who">${esc(d.speaker)}<small>镜头 ${d.shot ?? '—'} · ${d.screen ? '口播' : '画外'}</small></span>
+        <span class="txt"><q>${esc(d.text)}</q></span>
+      </div>`).join('') : '<p class="mono faint" style="font-size:10px">本片段无台词</p>';
+    const acc = c.acceptance.length ? c.acceptance.map((a) => {
+      const cls = a.result === 'pass' ? 'pass' : a.result === 'fail' ? 'fail' : 'wait';
+      const ico = a.result === 'pass' ? 'i-check' : a.result === 'fail' ? 'i-x' : 'i-clock';
+      return `<div class="check"><span class="check-icon ${cls}"><svg class="icon"><use href="#${ico}"/></svg></span>
+        <span class="check-main"><b>${esc(a.criterion)}</b></span>
+        <span class="check-meta">${a.result === 'unknown' ? '待判' : a.result}</span></div>`;
+    }).join('') : '<p class="mono faint" style="font-size:10px;line-height:1.7">剧本未给该片段写验收点<br />质检退化为动线提示（见 seed report）</p>';
+    const motion = L && L.avg != null
+      ? `<dl class="kv" style="margin-top:2px">
+           <dt>samples</dt><dd>${L.samples ?? '—'}</dd>
+           <dt>freeze</dt><dd>${L.freeze ?? '—'}</dd>
+           <dt>avg / max</dt><dd>${L.avg} / ${L.max ?? '—'}</dd>
+         </dl>`
+      : '<p class="mono faint" style="font-size:10px">该次 revision 无 motion_json</p>';
+
+    return `
+    <div class="detail-inner">
+      <div class="detail-col">
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-sparkles"/></svg>
+            <span class="panel-title">终剪提示词</span>
+            <span class="chip">${c.promptLen} 字</span>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9px;color:var(--ink-4)">clip.prompt · clip.negative</span>
+          </div>
+          <div class="panel-body" style="padding:10px 12px">
+            <p class="prompt-text" style="font-size:11.5px">${esc(c.promptHead)}</p>
+            <p class="mono faint" style="font-size:9px;margin:8px 0 0">正文按 GET /clips/{cid}.prompt 取全文；本原型只留首段，避免把 168KB 塞进静态页。</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-layers"/></svg>
+            <span class="panel-title">镜头时序</span>
+            <span class="chip ${seq ? 'chip-ok' : 'chip-fail'}">${seq ? '闭合' : '不闭合'} ${c.duration}s</span>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9px;color:var(--ink-4)">shots_json · 最多 8 镜</span>
+          </div>
+          <div class="panel-body" style="padding:8px 12px">
+            <div class="shots-lite">${shots}</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-activity"/></svg>
+            <span class="panel-title">台词</span>
+            <span class="chip">${c.dialogue.length} 条</span>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9px;color:var(--ink-4)">dialogue_json · 原文内嵌</span>
+          </div>
+          <div class="panel-body" style="padding:6px 12px 8px"><div class="dlg-lite">${dlg}</div></div>
+        </div>
+      </div>
+
+      <div class="detail-col">
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-shield"/></svg>
+            <span class="panel-title">验收点</span>
+            <span class="chip">${c.acceptance.length} 条</span>
+            <span class="spacer"></span>
+            <span class="mono" style="font-size:9px;color:var(--ink-4)">acceptance_json</span>
+          </div>
+          <div class="panel-body" style="padding:4px 12px 6px">${acc}</div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-image"/></svg>
+            <span class="panel-title">参考图槽位</span>
+            <span class="chip chip-wait">asset_id 未回填</span>
+          </div>
+          <div class="panel-body" style="padding:10px 12px">
+            <div class="slots-lite">${slots}</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <svg class="icon icon-14" style="color:var(--ink-4)"><use href="#i-history"/></svg>
+            <span class="panel-title">最近一次生成</span>
+            <span class="chip">${c.revCount} 版</span>
+            <span class="spacer"></span>
+            <button class="link-btn" data-todo="GET /clips/{cid}/revisions → /revisions/{a}/diff/{b}">
+              <svg class="icon"><use href="#i-compare"/></svg>对比
+            </button>
+          </div>
+          <div class="panel-body" style="padding:10px 12px">
+            ${L ? `<dl class="kv">
+              <dt>模型</dt><dd>${esc(L.model)} · ${L.res}</dd>
+              <dt>时长</dt><dd>${L.seconds}s</dd>
+              <dt>计费 token</dt><dd>${Number(L.tokens).toLocaleString()}</dd>
+              <dt>金额</dt><dd class="money">¥${Number(L.cost).toFixed(2)}</dd>
+              <dt>耗时</dt><dd>${Math.round(L.latencyMs / 1000)}s</dd>
+            </dl>
+            <div class="rule-chips" style="margin:8px 0 0">
+              <span class="chip">motion_json</span><span class="chip">acceptance_result_json</span>
+            </div>
+            ${motion}` : '<p class="mono faint" style="font-size:10px">该片段尚无 revision</p>'}
+          </div>
+        </div>
+
+        <div class="act-row">
+          <button class="btn btn-sm" data-todo="/clips/{cid}/generate">生成草稿</button>
+          <button class="btn btn-sm needs-write" data-todo="PATCH /clips/{cid} + If-Match">编辑分镜</button>
+          <span class="spacer"></span>
+          <button class="btn btn-sm btn-ghost" data-open-pay title="预览付费点弹窗（接口未接入）">付费点预览</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  /* ---------------- 镜头墙渲染 ---------------- */
+  function renderWall(list) {
+    $('#wall').innerHTML = list.map((c) => {
+      const st = STATUS[c.status] || STATUS.draft;
+      const pips = c.acceptance.length
+        ? c.acceptance.slice(0, 6).map((a) => `<i class="pip ${a.result === 'pass' ? 'p' : a.result === 'fail' ? 'f' : ''}"></i>`).join('')
+        : '<i class="pip"></i>'.repeat(Math.min(c.shots.length, 6));
+      return `
+      <article class="cell" role="button" tabindex="0" data-idx="${c.idx}" aria-label="${esc(c.title)}，${c.duration}s，${st.label}">
+        <div class="cell-img">
+          <img src="${thumbOf(c)}" alt="${esc(c.title)}" loading="lazy" decoding="async" />
+          <span class="cell-idx">${String(c.idx).padStart(2, '0')}</span>
+          <span class="cell-dur">${c.duration}s</span>
+        </div>
+        <div class="cell-body">
+          <b>${esc(c.title)}</b>
+          <div class="cell-meta">
+            <span>${c.shots.length} 镜</span><span>·</span><span>${c.dialogue.length} 台词</span>
+            <span class="${st.cls}" style="margin-left:auto;height:17px;font-size:9px;padding:0 4px">${st.label}</span>
+          </div>
+          <div class="cell-foot">
+            <span class="pips">${pips}</span>
+            <span class="money">${c.revCount} 版</span>
+          </div>
+        </div>
+      </article>`;
+    }).join('');
+    $('#wallCounts').textContent = `${list.length} 片段 · ${list.reduce((s, c) => s + Number(c.duration), 0).toFixed(2)}s`;
+  }
+
+  $('#sbBody').innerHTML = rowsHtml;
+  renderWall(DATA);
+
+  /* 展开 / 收起：手风琴，一次一行 */
+  const rows = () => $$('#sbBody tr.sb-row');
+  const detailOf = (row) => row.nextElementSibling;
+  function toggleRow(row, force) {
+    const open = force ?? !row.classList.contains('is-open');
+    rows().forEach((r) => {
+      r.classList.remove('is-open');
+      detailOf(r).hidden = true;
+    });
+    if (open) {
+      row.classList.add('is-open');
+      detailOf(row).hidden = false;
+    }
+  }
+  rows().forEach((r) => r.addEventListener('click', (e) => {
+    if (e.target.closest('button, a')) return;
+    toggleRow(r);
+  }));
+
+  /* 状态筛选 */
+  $$('.rail-filters .filter').forEach((f) => f.addEventListener('click', () => {
+    $$('.rail-filters .filter').forEach((x) => x.setAttribute('aria-pressed', String(x === f)));
+    const key = f.dataset.filter;
+    const allow = key === 'all' ? null : new Set(GROUP[key].split(','));
+    rows().forEach((r) => {
+      const show = !allow || allow.has(r.dataset.status);
+      r.hidden = !show;
+      detailOf(r).hidden = true;
+      r.classList.remove('is-open');
+    });
+    renderWall(DATA.filter((c) => !allow || allow.has(c.status)));
+  }));
+
+  /* ---------------- 视图切换 ---------------- */
+  const VIEWS = { table: $('#view-table'), cost: $('#view-cost'), wall: $('#view-wall') };
+  function showView(name) {
+    Object.entries(VIEWS).forEach(([k, el]) => { el.hidden = k !== name; });
+    $$('.seg button[data-view]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.view === name)));
+    $$('.nav-item[data-view]').forEach((b) => b.classList.toggle('is-active', b.dataset.view === name));
+  }
+  $$('[data-view]').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
+  $$('[data-view-btn]').forEach((b) => b.addEventListener('click', () => showView(b.dataset.viewBtn)));
+
+  /* ---------------- 侧栏：折叠 + 阶段入口 ---------------- */
+  const app = $('#app');
+  const NAV_KEY = 'manju.nav.collapsed';
+  const setNav = (collapsed) => {
+    app.classList.toggle('nav-collapsed', collapsed);
+    localStorage.setItem(NAV_KEY, collapsed ? '1' : '0');
+    $('#sbToggle').setAttribute('title', collapsed ? '展开侧栏 (⌘B)' : '折叠侧栏 (⌘B)');
+  };
+  setNav(localStorage.getItem(NAV_KEY) === '1');
+  if (params.get('nav') === 'collapsed') setNav(true);
+  $('#sbToggle').addEventListener('click', () => setNav(!app.classList.contains('nav-collapsed')));
+  $('#sbHandle').addEventListener('click', () => setNav(false));
+
+  $$('.nav-item[data-stage]').forEach((b) => b.addEventListener('click', () => {
+    $$('.nav-item[data-stage]').forEach((x) => x.classList.remove('is-active'));
+    b.classList.add('is-active');
+    const todo = b.dataset.todo;
+    if (todo) toast(`阶段入口依赖 ${todo}（02 §11 未接入）`);
+  }));
+
+  /* ---------------- 栅格 ---------------- */
+  $('.col-guides').innerHTML = '<span></span>'.repeat(12);
+  $('#gridToggle').addEventListener('click', () => document.body.classList.toggle('grid-on'));
+  if (params.get('grid') === '1') document.body.classList.add('grid-on');
+
+  /* ---------------- 待接入提示 ---------------- */
+  function toast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.innerHTML = '<svg class="icon icon-14"><use href="#i-alert"/></svg><span></span>';
+    el.lastElementChild.textContent = text;
+    el.querySelector('.icon').style.color = 'var(--amber)';
+    $('#toastHost').appendChild(el);
+    setTimeout(() => el.remove(), 3400);
+  }
+  document.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-todo]');
+    if (!t) return;
+    e.preventDefault();
+    toast(`未接入：${t.dataset.todo}`);
+  });
+
+  /* ---------------- 付费点（预览） ---------------- */
+  const modal = $('#payModal');
+  const openPay = () => { modal.hidden = false; };
+  const closePay = () => { modal.hidden = true; };
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-open-pay]')) openPay();
+    if (e.target.closest('[data-close]')) closePay();
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      setNav(!app.classList.contains('nav-collapsed'));
+    }
+    if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !/input|textarea/i.test(document.activeElement.tagName)) {
+      document.body.classList.toggle('grid-on');
+    }
+    if (e.key === 'Escape') closePay();
+  });
+
+  /* 镜头墙卡片：点开回到分镜表并展开该行 */
+  function openFromWall(idx) {
+    showView('table');
+    const activeFilter = $('.rail-filters .filter[aria-pressed="true"]');
+    if (activeFilter && activeFilter.dataset.filter !== 'all') {
+      $('.rail-filters .filter[data-filter="all"]').click();
+    }
+    const row = rows().find((r) => r.dataset.idx === idx);
+    if (row) {
+      toggleRow(row, true);
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+  document.addEventListener('click', (e) => {
+    const cell = e.target.closest('#wall .cell');
+    if (cell) openFromWall(cell.dataset.idx);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const cell = document.activeElement && document.activeElement.closest('#wall .cell');
+    if (cell) { e.preventDefault(); openFromWall(cell.dataset.idx); }
+  });
+
+  /* ---------------- 深链 ---------------- */
+  if (['cost', 'wall'].includes(params.get('view'))) showView(params.get('view'));
+  if (params.get('open')) {
+    const r = rows().find((x) => x.dataset.idx === params.get('open'));
+    if (r) toggleRow(r, true);
+  }
+  if (params.get('modal') === '1') openPay();
+</script>
+</body>
+</html>

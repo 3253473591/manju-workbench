@@ -1,0 +1,375 @@
+[
+  {
+    "clip_key": "ep1.s1",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007125206-oP769",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 180000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 29.82,
+      "max": 51.2
+    },
+    "acceptance_result": [
+      {
+        "id": "a1",
+        "result": "pass",
+        "evidence": "达成"
+      },
+      {
+        "id": "a2",
+        "result": "pass",
+        "evidence": "达成"
+      },
+      {
+        "id": "a3",
+        "result": "pass",
+        "evidence": "达成"
+      }
+    ]
+  },
+  {
+    "clip_key": "ep1.s1",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007130119-JorTB",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 180000,
+    "motion": {
+      "samples": null,
+      "freeze": 0,
+      "avg": 28.0,
+      "max": 49.63
+    },
+    "acceptance_result": [
+      {
+        "id": "a4",
+        "result": "pass",
+        "evidence": "达成"
+      },
+      {
+        "id": "a5",
+        "result": "pass",
+        "evidence": "达成"
+      }
+    ]
+  },
+  {
+    "clip_key": "ep1.s2",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007123340-yz48t",
+    "input_tokens": 195300,
+    "video_seconds": "9",
+    "unit_price": null,
+    "cost": "1.71",
+    "latency_ms": 186000,
+    "motion": {
+      "samples": 17,
+      "freeze": 0,
+      "avg": 23.78,
+      "max": 36.59
+    },
+    "acceptance_result": [
+      {
+        "id": "a1",
+        "result": "pass",
+        "evidence": "达成"
+      },
+      {
+        "id": "a3",
+        "result": "pass",
+        "evidence": "达成"
+      }
+    ]
+  },
+  {
+    "clip_key": "ep1.s3",
+    "version_tag": null,
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006215933-mnQrO",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.84",
+    "latency_ms": 240000,
+    "motion": null,
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s3",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006221855-niDMF",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.84",
+    "latency_ms": 180000,
+    "motion": null,
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s4",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006234127-TMsy3",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 240000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 29.06,
+      "max": 54.44
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s4",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006235831-6FHbU",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 210000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 26.87,
+      "max": 54.84
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s4",
+    "version_tag": "v3",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007000904-dplJm",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 270000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 31.17,
+      "max": 58.21
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s5",
+    "version_tag": "v4",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007161354-IjCng",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": "0.19",
+    "cost": "2.3",
+    "latency_ms": 252000,
+    "motion": {
+      "samples": null,
+      "freeze": 0,
+      "avg": 28.29,
+      "max": 50.38
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s5",
+    "version_tag": "v3",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007160431-vOfV6",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 228000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 25.56,
+      "max": 44.71
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s5",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006224030-TNrzf",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 210000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 26.49,
+      "max": null
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s5",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006222855-w6Nl5",
+    "input_tokens": 260100,
+    "video_seconds": "12",
+    "unit_price": null,
+    "cost": "2.27",
+    "latency_ms": 240000,
+    "motion": {
+      "samples": 23,
+      "freeze": 0,
+      "avg": 28.58,
+      "max": 45.58
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s6",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261006232218-tIYwy",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.84",
+    "latency_ms": 240000,
+    "motion": {
+      "samples": 29,
+      "freeze": 0,
+      "avg": 24.32,
+      "max": 43.24
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s6",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007163333-mtMER",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.85",
+    "latency_ms": 210000,
+    "motion": {
+      "samples": null,
+      "freeze": 0,
+      "avg": 23.83,
+      "max": 49.25
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s8",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007170246-4sRAX",
+    "input_tokens": 87300,
+    "video_seconds": "4",
+    "unit_price": null,
+    "cost": "0.76",
+    "latency_ms": 162000,
+    "motion": {
+      "samples": null,
+      "freeze": 0,
+      "avg": 9.87,
+      "max": 16.69
+    },
+    "acceptance_result": []
+  },
+  {
+    "clip_key": "ep1.s7",
+    "version_tag": "v1",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007002017-JUePz",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.85",
+    "latency_ms": 198000,
+    "motion": {
+      "samples": 29,
+      "freeze": 0,
+      "avg": 20.66,
+      "max": 42.59
+    },
+    "acceptance_result": [
+      {
+        "id": "a3",
+        "result": "fail",
+        "evidence": "未达成"
+      },
+      {
+        "id": "a4",
+        "result": "fail",
+        "evidence": "未达成"
+      }
+    ]
+  },
+  {
+    "clip_key": "ep1.s7",
+    "version_tag": "v2",
+    "model_used": "seedance-2.0-mini",
+    "resolution": "720p",
+    "task_id": "cgt-20261007003754-yTSim",
+    "input_tokens": 324900,
+    "video_seconds": "15",
+    "unit_price": null,
+    "cost": "2.85",
+    "latency_ms": 198000,
+    "motion": {
+      "samples": 29,
+      "freeze": null,
+      "avg": 20.55,
+      "max": 43.56
+    },
+    "acceptance_result": [
+      {
+        "id": "a4",
+        "result": "pass",
+        "evidence": "达成"
+      },
+      {
+        "id": "a5",
+        "result": "fail",
+        "evidence": "未达成"
+      }
+    ]
+  }
+]

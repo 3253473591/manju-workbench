@@ -1,0 +1,26 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 2560
+PlayResY: 1440
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Demo,Microsoft YaHei,46,&H00FFFFFF,&H00FFFFFF,&H00101010,&H64000000,0,0,0,0,100,100,0,0,1,2.2,0.6,2,80,80,46,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.20,0:00:04.81,Demo,,0,0,0,,① 受控的 AI 漫剧生产链路 —— S1–S5 共用一条代码路径
+Dialogue: 0,0:00:04.81,0:00:10.17,Demo,,0,0,0,,② 一集 8 个片段：状态 / 镜头 / 槽位 / 成本都在一张表里
+Dialogue: 0,0:00:10.17,0:00:15.87,Demo,,0,0,0,,③ 镜头墙：真实成片缩略图，跨集可见
+Dialogue: 0,0:00:15.87,0:00:19.48,Demo,,0,0,0,,④ 打回：审批绑定在具体 take 上，状态进入 rejected
+Dialogue: 0,0:00:19.48,0:00:23.38,Demo,,0,0,0,,⑤ 重发：历史 take 都在，可回滚；回滚不写新 revision、不花钱
+Dialogue: 0,0:00:23.38,0:00:25.89,Demo,,0,0,0,,⑤ 回滚到旧版本：片段回到 review，无需重新生成
+Dialogue: 0,0:00:25.89,0:00:29.85,Demo,,0,0,0,,⑥ 付费点第一步：只填预算上限，提交前不产生任何计费
+Dialogue: 0,0:00:29.85,0:00:38.14,Demo,,0,0,0,,⑥ 第二步先看预估金额与 token，再「确认付费」
+Dialogue: 0,0:00:38.14,0:00:44.26,Demo,,0,0,0,,⑥ 出片后：时间线 claim→provider→asset→review→decision，每一步可追
+Dialogue: 0,0:00:44.26,0:00:49.41,Demo,,0,0,0,,⑦ 被引用即禁删：409 面板列出引用它的集 / 片段 / 槽位
+Dialogue: 0,0:00:49.41,0:00:55.63,Demo,,0,0,0,,⑧ 成本四口径：按模型 / 按集 / 按片段 / 按天
+Dialogue: 0,0:00:55.63,0:01:02.01,Demo,,0,0,0,,⑨ 资产是项目级的：第二集的槽位直接挑第一集用过的图
+Dialogue: 0,0:01:02.01,0:01:08.01,Demo,,0,0,0,,⑩ 管理面：Skill 发布必须试跑；provider 四通道可一键停用（止血开关）

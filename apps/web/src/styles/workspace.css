@@ -1,0 +1,844 @@
+/* 只补原型 CSS 没覆盖到的部分（React 外壳、分镜表、镜头墙、付费点）。
+   颜色/字号/圆角一律用 base.css 的变量，不改视觉系统。 */
+
+.boot {
+  padding: 64px;
+  color: var(--muted, #a9a9b2);
+  font: 13px var(--font);
+}
+
+.mj-login {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: var(--oled, #000);
+}
+.mj-login form {
+  display: grid;
+  gap: 14px;
+  width: 340px;
+  padding: 28px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-lg, 10px);
+  background: #0a0a0c;
+}
+.mj-login h1 {
+  margin: 0;
+  font-size: 19px;
+  color: #f2f2f4;
+}
+.mj-login label {
+  display: grid;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #a9a9b2;
+}
+.mj-login input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 13px var(--font);
+}
+.mj-login button,
+.mj-tabs button,
+.mj-actions button,
+.mj-modal button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 12.5px var(--font);
+  cursor: pointer;
+}
+.mj-login button[type="submit"] {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.mj-login button:disabled,
+.mj-actions button:disabled,
+.mj-modal button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mj-shell {
+  min-height: 100vh;
+  background: var(--oled, #000);
+  color: #f2f2f4;
+  font: 13px var(--font);
+}
+.mj-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid #17171c;
+  background: #0a0a0c;
+}
+.mj-sub {
+  margin-left: 10px;
+  color: #6d6d78;
+  font-size: 11.5px;
+}
+.mj-head-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* 项目名 + 集都塞进头部以后，按钮被挤成竖排（"＋项/目"），下拉也要限宽 */
+.mj-head > div:first-child {
+  min-width: 0;
+}
+.mj-head-right button {
+  flex: none;
+  white-space: nowrap;
+}
+.mj-head-right select {
+  min-width: 120px;
+  max-width: 240px;
+}
+/* 所有 select 统一走暗色：漏掉一处就会被浏览器的白底白字吞掉标签 */
+.mj-shell select {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 12.5px var(--font);
+}
+.mj-shell select:disabled {
+  color: #6d6d78;
+}
+.mj-user {
+  color: #6d6d78;
+  font-size: 11.5px;
+}
+
+.mj-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #17171c;
+}
+.mj-tabs button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.mj-total {
+  margin-left: auto;
+  color: var(--amber);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mj-table {
+  width: calc(100% - 48px);
+  margin: 16px 24px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.mj-table th,
+.mj-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #17171c;
+  text-align: left;
+  vertical-align: middle;
+}
+.mj-table th {
+  color: #6d6d78;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mj-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mj-sum td {
+  color: var(--amber);
+  font-weight: 600;
+}
+.mj-src {
+  margin-left: 6px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: #141419;
+  color: #6d6d78;
+  font-size: 9.5px;
+}
+.mj-dash {
+  color: #45454f;
+}
+.mj-chip {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid #30303a;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: #a9a9b2;
+}
+.mj-chip.approved {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.mj-chip.review {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+.mj-chip.rejected,
+.mj-chip.failed {
+  border-color: var(--rose);
+  color: var(--rose);
+  background: var(--rose-soft);
+}
+.mj-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+/* 片段下拉的选项文字等于片段标题，不压住就会把卡片连同按钮顶出视口 */
+.mj-actions select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.mj-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  padding: 16px 24px 32px;
+}
+.mj-card {
+  margin: 0;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  overflow: hidden;
+  background: #0e0e11;
+}
+.mj-card img,
+.mj-noimg {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #141419;
+}
+.mj-noimg {
+  display: grid;
+  place-items: center;
+  color: #45454f;
+  font-size: 11px;
+}
+.mj-card figcaption {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+}
+.mj-card figcaption b {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.mj-card figcaption span {
+  color: var(--amber);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mj-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 40;
+}
+.mj-modal-body {
+  display: grid;
+  gap: 12px;
+  width: 440px;
+  padding: 22px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-lg, 10px);
+  background: #0a0a0c;
+}
+.mj-modal-body h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.mj-modal-body label {
+  display: grid;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #a9a9b2;
+}
+.mj-modal-body input {
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 12.5px var(--mono);
+}
+.mj-job {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12px;
+}
+.mj-job dt {
+  color: #6d6d78;
+}
+.mj-job dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.mj-hint {
+  margin: 0;
+  color: #6d6d78;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.mj-msg {
+  margin: 0;
+  color: var(--accent);
+  font-size: 12px;
+}
+.mj-error {
+  margin: 0;
+  color: var(--rose);
+  font-size: 12px;
+}
+
+/* 质检结论：pass/fail/unknown 三态都要能被一眼扫出来 —— unknown 不是通过 */.mj-qc {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-qc h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a9a9b2;
+}
+.mj-qc ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mj-qc-item {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #c9c9d1;
+}
+.mj-qc-item b {
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mj-qc-pass b {
+  color: var(--accent);
+}
+.mj-qc-fail b {
+  color: var(--rose);
+}
+.mj-qc-unknown b {
+  color: var(--amber);
+}
+
+/* ---------------------------------------------------------------- 流水线（P0-3） */
+
+.mj-pipe {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  padding: 16px 24px 32px;
+}
+.mj-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  /* 网格项默认 min-width:auto，片段标题一长，卡片会被下拉的 max-content 顶宽、按钮挤出视口 */
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-stage header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.mj-stage header b {
+  font: 600 11px var(--mono);
+  color: var(--accent);
+}
+.mj-stage header span {
+  font-size: 13px;
+}
+.mj-stage .mj-actions {
+  justify-content: flex-start;
+}
+.mj-payload {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #141419;
+  color: #c9c9d1;
+  font: 11px/1.6 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 132px;
+  overflow: auto;
+}
+.mj-pipe-note {
+  grid-column: 1 / -1;
+}
+.mj-newform {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid #1a1a20;
+}
+.mj-newform label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #a9a9b2;
+}
+.mj-newform input {
+  width: 280px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 12.5px var(--mono);
+}
+
+/* ---------------------------------------------------------------- 版本链（P0-8） */
+
+.mj-takes {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-takes h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a9a9b2;
+}
+.mj-takes ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mj-takes li {
+  display: grid;
+  grid-template-columns: 34px 72px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 11px;
+  color: #8f8f99;
+  border-top: 1px solid #1a1a20;
+}
+.mj-takes li.on {
+  color: #f2f2f4;
+}
+.mj-takes li.on .mj-take-seq {
+  color: var(--accent);
+}
+.mj-take-seq {
+  font: 600 11px var(--mono);
+}
+.mj-take-cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--amber);
+}
+.mj-take-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mj-takes button {
+  padding: 2px 7px;
+  font-size: 10.5px;
+}
+.mj-diff {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #141419;
+  color: #c9c9d1;
+  font: 10.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  max-height: 180px;
+  overflow: auto;
+}
+
+/* ---------------------------------------------------------------- Skill 维护（P1-1） */
+
+.mj-skill {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  padding: 16px 24px 32px;
+  align-items: start;
+}
+.mj-skill-list {
+  display: grid;
+  gap: 6px;
+}
+.mj-skill-list button {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+  color: #a9a9b2;
+  cursor: pointer;
+}
+.mj-skill-list button.on {
+  border-color: var(--accent);
+  color: #f2f2f4;
+  background: #101418;
+}
+.mj-skill-list button b {
+  font-size: 12px;
+  font-weight: 500;
+}
+.mj-skill-list button span {
+  font-size: 10.5px;
+  color: #6d6d78;
+}
+.mj-skill-main {
+  display: grid;
+  gap: 12px;
+}
+.mj-skill-main > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.mj-dryrun-target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.mj-dryrun-target label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: #a9a9b2;
+}
+.mj-dryrun {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-dryrun h3,
+.mj-skill-new h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a9a9b2;
+}
+.mj-dryrun ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mj-dryrun li {
+  display: grid;
+  grid-template-columns: 56px 1fr 48px;
+  gap: 8px;
+  font-size: 11px;
+  color: #6d6d78;
+}
+.mj-dryrun li.on {
+  color: #c9c9d1;
+}
+.mj-dryrun li b {
+  font: 600 10.5px var(--mono);
+  color: var(--accent);
+}
+.mj-dryrun li em {
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.mj-skill-new {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-skill-new textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 11.5px/1.6 var(--mono);
+  resize: vertical;
+}
+.mj-skill-new input {
+  height: 30px;
+  min-width: 240px;
+  padding: 0 9px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 12px var(--mono);
+}
+
+/* ---------------------------------------------------------------- 执行时间线（P1-4） */
+
+.mj-trace {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-trace h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a9a9b2;
+}
+.mj-trace ol {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: trace;
+}
+.mj-trace li {
+  display: grid;
+  grid-template-columns: 84px 62px 52px 1fr;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  color: #8f8f99;
+}
+.mj-trace-step {
+  font: 600 10.5px var(--mono);
+  color: #c9c9d1;
+}
+.mj-trace li em {
+  font-style: normal;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.mj-trace-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 10.5px var(--mono);
+  color: #6d6d78;
+}
+
+/* ---------------------------------------------------------------- 镜头墙范围 / 槽位指派 */
+
+.mj-wall-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+.mj-wall-head button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mj-modal-wide {
+  width: 620px;
+}
+.mj-slots {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow: auto;
+}
+.mj-slots li {
+  display: grid;
+  grid-template-columns: 62px 58px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid #1a1a20;
+  font-size: 11.5px;
+}
+.mj-slots b {
+  font: 600 10.5px var(--mono);
+  color: var(--accent);
+}
+.mj-slot-role {
+  color: #a9a9b2;
+}
+.mj-slot-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8f8f99;
+  font: 10.5px var(--mono);
+}
+.mj-slots select {
+  grid-column: 1 / -1;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid #30303a;
+  border-radius: var(--r-md, 7px);
+  background: #141419;
+  color: #f2f2f4;
+  font: 11px var(--mono);
+}
+
+/* ---------------------------------------------------------------- provider 面板 */
+
+.mj-provider {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #22222a;
+  border-radius: var(--r-md, 7px);
+  background: #0e0e11;
+}
+.mj-provider h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: #a9a9b2;
+}
+.mj-provider ul {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+}
+.mj-provider li {
+  display: grid;
+  grid-template-columns: 34px 58px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+.mj-provider em {
+  font-style: normal;
+  color: #6d6d78;
+  font: 10.5px var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mj-provider .mj-real {
+  color: var(--accent);
+}
+.mj-provider .mj-fake {
+  color: var(--amber);
+}
+
+/* ---------------------------------------------------------------- 人物卡出图 */
+
+.mj-cardgen {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.mj-cardgen-figure {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+.mj-cardgen-figure img {
+  width: 160px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--r-md, 7px);
+  border: 1px solid #22222a;
+}
+.mj-cardgen-figure figcaption {
+  font-size: 10.5px;
+  color: #6d6d78;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- 资产库 */
+
+.mj-usages {
+  display: grid;
+  gap: 4px;
+  margin: 10px 24px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rose);
+  border-radius: var(--r-md, 7px);
+  background: var(--rose-soft);
+  font-size: 11.5px;
+  color: #d9b8bd;
+}
+.mj-usages b {
+  color: var(--rose);
+}
+.mj-usages ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: 16px;
+}
+.mj-card figcaption .mj-actions {
+  justify-content: flex-start;
+  margin-top: 2px;
+}

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>登录 · 漫剧工作台</title>
+<link rel="stylesheet" href="base.css" />
+</head>
+<body class="auth-body">
+
+<!-- 图标 sprite：手写 24×24 / 1.6 描边，零外链 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.4"/><path d="M7 2v20M17 2v20M2 12h20M2 7h5M2 17h5M17 7h5M17 17h5"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2.5 7.5 8.2 5.6a2.4 2.4 0 0 0 2.6 0l8.2-5.6"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6 5.5 12 5.5 21.4 12 21.4 12 18 18.5 12 18.5 2.6 12 2.6 12Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 6.2A9.7 9.7 0 0 1 12 6c6 0 9.4 6 9.4 6a17 17 0 0 1-2.7 3.4M6.3 7.6A17 17 0 0 0 2.6 12s3.4 6 9.4 6a9.4 9.4 0 0 0 4-.9"/><path d="M9.9 9.9a2.8 2.8 0 0 0 4 4"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.8 20 6v6.2c0 4.6-3.4 7.7-8 9-4.6-1.3-8-4.4-8-9V6Z"/><path d="m8.8 11.8 2.2 2.2 4.2-4.4"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h3.5l2.5 7 4-16 2.6 9H21"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21.2 19H2.8Z"/><path d="M12 9v4.2M12 16.4h.01"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m4.5 12.5 5 5 10-11"/></symbol>
+  <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 6.5a2.5 2.5 0 1 0-2.5 2.5H9m0-2.5V9m0-2.5A2.5 2.5 0 1 1 11.5 9H9m6-2.5V9m0-2.5A2.5 2.5 0 1 1 17.5 9H15m-4 0h2m-2 0v6m2-6v6m0 0H9m6 0h2.5A2.5 2.5 0 1 1 15 17.5V15Zm-6 0H6.5A2.5 2.5 0 1 0 9 17.5V15Z"/></symbol>
+</svg>
+
+<div class="auth-shell grid-surface">
+
+  <header class="auth-top">
+    <div class="row gap-8">
+      <span class="dot dot-ok"></span>
+      <span class="mono" style="letter-spacing:.1em">MANJU STUDIO</span>
+      <span class="hide-sm faint">漫剧工作台</span>
+    </div>
+    <div class="row gap-8 hide-sm">
+      <span class="mono faint">PRD v0.3.1</span>
+      <span class="faint">·</span>
+      <span class="mono">Mock 通道就绪 · 零 Key 可跑</span>
+    </div>
+  </header>
+
+  <main class="auth-stage">
+    <section class="auth-card" aria-labelledby="auth-title">
+
+      <div class="auth-brand">
+        <span class="auth-mark"><svg class="icon icon-20"><use href="#i-film"/></svg></span>
+        <div>
+          <h1 id="auth-title">漫剧工作台</h1>
+          <p>Manju Studio · 受控 Agent 生产链路</p>
+        </div>
+        <span class="spacer"></span>
+        <span class="chip">v0.3</span>
+      </div>
+
+      <form id="loginForm" novalidate autocomplete="off">
+
+        <div class="field" id="fieldEmail">
+          <div class="field-top">
+            <label class="field-label" for="email">工作邮箱</label>
+            <span class="field-hint">name@manju.studio</span>
+          </div>
+          <div class="input-wrap">
+            <svg class="icon"><use href="#i-mail"/></svg>
+            <input class="input" id="email" name="email" type="email" value="lead@manju.studio"
+                   placeholder="name@manju.studio" spellcheck="false" autocomplete="username" required />
+          </div>
+          <p class="field-error"><svg class="icon icon-12"><use href="#i-alert"/></svg><span>请输入有效的工作邮箱</span></p>
+        </div>
+
+        <div class="field" id="fieldPwd">
+          <div class="field-top">
+            <label class="field-label" for="pwd">访问口令</label>
+            <span class="field-hint">Argon2id · ≥ 10 位</span>
+          </div>
+          <div class="input-wrap">
+            <svg class="icon"><use href="#i-lock"/></svg>
+            <input class="input" id="pwd" name="pwd" type="password" value="ManjuDemo2026"
+                   placeholder="••••••••••" autocomplete="current-password" required
+                   style="padding-right:40px" />
+            <button class="input-suffix" type="button" id="pwdToggle" aria-label="显示口令" title="显示口令">
+              <svg class="icon icon-14" id="pwdIcon"><use href="#i-eye"/></svg>
+            </button>
+          </div>
+          <p class="field-error"><svg class="icon icon-12"><use href="#i-alert"/></svg><span>口令至少 10 位（演示：已预填可用口令）</span></p>
+        </div>
+
+        <div class="role-pick">
+          <div class="field-top">
+            <span class="field-label">以什么身份进入</span>
+            <span class="field-hint">演示预设</span>
+          </div>
+          <div class="role-grid" role="group" aria-label="演示身份">
+            <button class="role" type="button" data-role="lead" aria-pressed="true">
+              <span class="role-name">lead</span>
+              <span class="role-desc">建剧 / 改词 / 看账</span>
+            </button>
+            <button class="role" type="button" data-role="user" aria-pressed="false">
+              <span class="role-name">user</span>
+              <span class="role-desc">跑生成 / 无全账</span>
+            </button>
+            <button class="role" type="button" data-role="admin" aria-pressed="false">
+              <span class="role-name">admin</span>
+              <span class="role-desc">改 Skill / 内容只读</span>
+            </button>
+          </div>
+        </div>
+
+        <button class="auth-submit" type="submit" id="submitBtn" data-loading="false">
+          <span class="go" style="display:flex;align-items:center;gap:8px">
+            <span id="submitText">进入《师尊别砍我系统》</span>
+            <svg class="icon icon-14"><use href="#i-arrow-right"/></svg>
+          </span>
+          <span class="spinner"></span>
+        </button>
+      </form>
+
+      <div class="auth-meta">
+        <span class="row gap-6">
+          <svg class="icon icon-12" style="color:var(--ink-4)"><use href="#i-shield"/></svg>
+          <span>HttpOnly Cookie · 7 天</span>
+        </span>
+        <span class="mono" style="color:var(--ink-4)">演示数据：第一集 8 片段</span>
+      </div>
+
+      <div class="auth-note">
+        <svg class="icon icon-14"><use href="#i-database"/></svg>
+        <span>已灌入真实基线《师尊别砍我系统》第一集 —— 8 个片段 / 68 秒 / 60 余张设定图。<b>当前为 Mock 通道，不产生费用。</b></span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="auth-foot">
+    <div class="foot-rule">
+      <span class="mono">ADR-003 线性流水线</span>
+      <span class="sep">/</span>
+      <span class="mono">ADR-005 付费点硬停</span>
+      <span class="sep">/</span>
+      <span class="mono hide-sm">ADR-008 Skill 归超管</span>
+    </div>
+    <div class="foot-rule">
+      <kbd>⏎</kbd><span>登录</span>
+      <span class="sep">·</span>
+      <span>无找回密码 · 无邮件</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+  const form = document.getElementById('loginForm');
+  const email = document.getElementById('email');
+  const pwd = document.getElementById('pwd');
+  const btn = document.getElementById('submitBtn');
+  const submitText = document.getElementById('submitText');
+  const roleBtns = Array.from(document.querySelectorAll('.role'));
+  let role = 'lead';
+
+  const roleCopy = {
+    lead: '进入《师尊别砍我系统》',
+    user: '进入工作台（成员）',
+    admin: '进入 Skill 控制台'
+  };
+
+  roleBtns.forEach((b) => b.addEventListener('click', () => {
+    role = b.dataset.role;
+    roleBtns.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    submitText.textContent = roleCopy[role];
+  }));
+
+  document.getElementById('pwdToggle').addEventListener('click', () => {
+    const show = pwd.type === 'password';
+    pwd.type = show ? 'text' : 'password';
+    document.getElementById('pwdIcon').firstElementChild.setAttribute('href', show ? '#i-eye-off' : '#i-eye');
+  });
+
+  const setError = (fieldId, on) => {
+    document.getElementById(fieldId).classList.toggle('has-error', on);
+  };
+  email.addEventListener('input', () => setError('fieldEmail', false));
+  pwd.addEventListener('input', () => setError('fieldPwd', false));
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim());
+    const pwdOk = pwd.value.length >= 10;
+    setError('fieldEmail', !emailOk);
+    setError('fieldPwd', !pwdOk);
+    if (!emailOk || !pwdOk) {
+      (emailOk ? pwd : email).focus();
+      return;
+    }
+    btn.dataset.loading = 'true';
+    setTimeout(() => {
+      location.href = `workspace.html?role=${role}`;
+    }, 620);
+  });
+</script>
+</body>
+</html>

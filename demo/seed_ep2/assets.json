@@ -1,0 +1,562 @@
+[
+  {
+    "rel_path": "00_静态资源/00人物-小童三人组-立绘.png",
+    "kind": "image",
+    "bytes": 7531229,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-师父-三视图.jpg",
+    "kind": "image",
+    "bytes": 7001587,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-师父-三视图_看图王.jpg",
+    "kind": "image",
+    "bytes": 5322637,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-师父-喜剧版三视图.jpg",
+    "kind": "image",
+    "bytes": 7146116,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-师父-喜剧版立绘.png",
+    "kind": "image",
+    "bytes": 13135899,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-师父-立绘.png",
+    "kind": "image",
+    "bytes": 11014325,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-三视图.jpg",
+    "kind": "image",
+    "bytes": 7305936,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-全身立绘.png",
+    "kind": "image",
+    "bytes": 2391344,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-半身立绘.png",
+    "kind": "image",
+    "bytes": 2277786,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-喜剧版三视图.jpg",
+    "kind": "image",
+    "bytes": 8157943,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-喜剧版立绘.png",
+    "kind": "image",
+    "bytes": 11538475,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-徒弟-立绘.png",
+    "kind": "image",
+    "bytes": 11516796,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-悍匪-三视图.png",
+    "kind": "image",
+    "bytes": 4398501,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-悍匪-宽幅设定案.png",
+    "kind": "image",
+    "bytes": 2650858,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-悍匪-立绘.png",
+    "kind": "image",
+    "bytes": 14885310,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-悍匪-面部特写.png",
+    "kind": "image",
+    "bytes": 8306897,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-系统拟人-三视图.jpg",
+    "kind": "image",
+    "bytes": 6328587,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-系统拟人-立绘.png",
+    "kind": "image",
+    "bytes": 5427990,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-萧凌风-三视图.png",
+    "kind": "image",
+    "bytes": 4072695,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-萧凌风-立绘.png",
+    "kind": "image",
+    "bytes": 12681058,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/00人物-萧凌风-面部特写.png",
+    "kind": "image",
+    "bytes": 4692131,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-万米高空云海-白昼.png",
+    "kind": "image",
+    "bytes": 3121066,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-上古剑神秘境-坑底幻境.png",
+    "kind": "image",
+    "bytes": 2951404,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-上古青铜剑殿-坑底大殿.png",
+    "kind": "image",
+    "bytes": 3972667,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-官道天坑-核爆后.png",
+    "kind": "image",
+    "bytes": 3282216,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-官道战场-弹痕废墟.png",
+    "kind": "image",
+    "bytes": 3528016,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-官道枯树-抽芽.png",
+    "kind": "image",
+    "bytes": 3334719,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-官道虚空-粉红空间裂缝.png",
+    "kind": "image",
+    "bytes": 2422874,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-荒郊猪窝-泥潭夜景.png",
+    "kind": "image",
+    "bytes": 3453715,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-荒郊猪窝-远景空镜.png",
+    "kind": "image",
+    "bytes": 11686042,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-黄土官道-中景主场景.png",
+    "kind": "image",
+    "bytes": 4342147,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/01场景-黄土官道-日景远景空镜.png",
+    "kind": "image",
+    "bytes": 3762258,
+    "role_hint": "scene",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-万魂幡充气大沙发.png",
+    "kind": "image",
+    "bytes": 1435058,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-万魂幡黑气滑板.png",
+    "kind": "image",
+    "bytes": 3017873,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-上古剑神残魂-金色.png",
+    "kind": "image",
+    "bytes": 8646744,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-上古残魂群-殿堂.png",
+    "kind": "image",
+    "bytes": 6119449,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-九幽魔改RPG火箭筒.png",
+    "kind": "image",
+    "bytes": 2323599,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-九环大砍刀.png",
+    "kind": "image",
+    "bytes": 1599787,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-储物袋.png",
+    "kind": "image",
+    "bytes": 2736822,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-冰髓灵茶盏.png",
+    "kind": "image",
+    "bytes": 1176451,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-削瓜飞剑与西瓜.png",
+    "kind": "image",
+    "bytes": 1514596,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-功德金环-超载白光.png",
+    "kind": "image",
+    "bytes": 3639864,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-四十米黑气巨刃.png",
+    "kind": "image",
+    "bytes": 3261151,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-天火连珠铳-加长弹匣.png",
+    "kind": "image",
+    "bytes": 2345820,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-天火连珠铳.png",
+    "kind": "image",
+    "bytes": 1346455,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-天道气运标签-灰.png",
+    "kind": "image",
+    "bytes": 251942,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-天道气运标签-金.png",
+    "kind": "image",
+    "bytes": 291169,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-天道气运标签.png",
+    "kind": "image",
+    "bytes": 1016407,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-母猪妖-侧躺含羞.png",
+    "kind": "image",
+    "bytes": 3972321,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-气运光环-掉线乱码.png",
+    "kind": "image",
+    "bytes": 2418794,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-灵石收款码.png",
+    "kind": "image",
+    "bytes": 2985524,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-猩红目标锁定框.png",
+    "kind": "image",
+    "bytes": 2308513,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-电臀火花幕.png",
+    "kind": "image",
+    "bytes": 2659467,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-粗布钱袋与钱庄兑票.png",
+    "kind": "image",
+    "bytes": 1710957,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-系统界面-乱码警报.png",
+    "kind": "image",
+    "bytes": 1397383,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-系统界面-造化玉碟腿毛.png",
+    "kind": "image",
+    "bytes": 12655675,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-系统直播球.png",
+    "kind": "image",
+    "bytes": 3073536,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "00_静态资源/02道具-青铜叫号令牌.png",
+    "kind": "image",
+    "bytes": 5314720,
+    "role_hint": "prop",
+    "source": "seed"
+  },
+  {
+    "rel_path": "人物卡/results/00人物-师父-喜剧版-肯德基滑板.png",
+    "kind": "image",
+    "bytes": 12162612,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "人物卡/results/00人物-徒弟-喜剧版-猪圈接生.png",
+    "kind": "image",
+    "bytes": 11716527,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "人物卡/results/00人物-系统拟人-喜剧版-挨砍抱头.png",
+    "kind": "image",
+    "bytes": 9615332,
+    "role_hint": "character",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s1_荒诞接生与功德圆满.mp4",
+    "kind": "video",
+    "bytes": 11337080,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s2_暴怒发飙与系统砍一刀.mp4",
+    "kind": "video",
+    "bytes": 8540292,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s3_虚空粉碎滑板师尊登场.mp4",
+    "kind": "video",
+    "bytes": 13323819,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s4_师尊暴怒万鬼锁定.mp4",
+    "kind": "video",
+    "bytes": 10945968,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s5_概念体照砍极限骤停.mp4",
+    "kind": "video",
+    "bytes": 9981067,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s6_作者境不为师是普通人.mp4",
+    "kind": "video",
+    "bytes": 12336891,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s6b_徒弟的自嘲反应.mp4",
+    "kind": "video",
+    "bytes": 2911676,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第一集/s7_祖传反派狞笑魔气封镜.mp4",
+    "kind": "video",
+    "bytes": 12299188,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s1-V2_云端真皮大沙发与千瓦疝气远光灯.mp4",
+    "kind": "video",
+    "bytes": 9550190,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s2_老实人短剧赛道.mp4",
+    "kind": "video",
+    "bytes": 13666677,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s3_不讲价与包售后.mp4",
+    "kind": "video",
+    "bytes": 11254848,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s3b_悍匪蹲下立规矩-替换件.mp4",
+    "kind": "video",
+    "bytes": 7112788,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s4a_大额诱惑与要稳.mp4",
+    "kind": "video",
+    "bytes": 7244417,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s4b_匠人精神擦刀.mp4",
+    "kind": "video",
+    "bytes": 8064758,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s5_病毒警报踏实抢劫与枯树抽芽.mp4",
+    "kind": "video",
+    "bytes": 12178786,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s6_品牌溢价与桃花BGM.mp4",
+    "kind": "video",
+    "bytes": 10552891,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s6a_品牌溢价-替换件.mp4",
+    "kind": "video",
+    "bytes": 7063275,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s7a_气运压制-地面层.mp4",
+    "kind": "video",
+    "bytes": 6097721,
+    "role_hint": "clip",
+    "source": "seed"
+  },
+  {
+    "rel_path": "第二集/s7b_加钟的天火连珠铳-高空层.mp4",
+    "kind": "video",
+    "bytes": 5227975,
+    "role_hint": "clip",
+    "source": "seed"
+  }
+]

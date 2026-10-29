@@ -1,0 +1,55 @@
+# 零 key 一键起：mysql + api + web。
+# 所有凭据都带默认值（${VAR:-default}）—— 删掉 .env 也必须能 `docker compose up`。
+# 要改就复制 .env.example 成 .env（不是必须）。
+
+# 显式给项目名：compose 默认取目录名，而本仓库目录是中文，会报 "project name must not be empty"
+name: manju
+
+services:
+  mysql:
+    image: mysql:8.4
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-devpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-manju_dev}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-devpass}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: ./apps/api
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # 迁移在 entrypoint 里跑，跑完才起 uvicorn
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-devpass}@mysql:3306/${MYSQL_DATABASE:-manju_dev}?charset=utf8mb4
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-dev-secret-32}
+      CSRF_ORIGINS: ${CSRF_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      # 指向你自己的剧集目录；这里默认挂 ./media，把剧集放进去即可
+      MEDIA_ROOT: /media
+      # 质检脚本路径（可选）。不设就是降级为 unknown，不影响主链路
+      VSCAN_PATH: ${VSCAN_PATH:-}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # 必须可写：启动校验会检查 MEDIA_ROOT 可写（03 §12.1）
+      - ${MEDIA_HOST_PATH:-./media}:/media
+
+  web:
+    build: ./apps/web
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  mysql-data:
