@@ -313,6 +313,15 @@ cd apps/api && python -m pytest -q          # 需要本地 MySQL（会自动建 
   撞出来的 9 个缺陷与刻意不改的行为见 `docs/开发文档/04-对抗性探针与缺陷记录.md`
 - **35 条 provider 适配**：用 `httpx.MockTransport` 造上游，**不需要真 key** 也能钉住解析/计费/错误分类
 
+CI（[.github/workflows/ci.yml](.github/workflows/ci.yml)）跑四件事：后端 pytest（真 MySQL）、前端 `tsc + vite build`、
+配置项审计（`scripts/settings_audit.py --strict`，抓"写了没人读/读了没写"的配置）、以及 Playwright 冒烟
+（登录 → 分镜表 → 付费点，用 `scripts/seed_e2e.py` 造最小数据，不需要剧集素材）。
+
+```bash
+cd apps/web && pnpm exec playwright test --list   # 本地看用例
+python scripts/settings_audit.py --strict         # 本地跑配置审计
+```
+
 ## 已知未做 / 路线图
 
 - `reroll` 的"重拍成新片段"分支（现在是在同一片段上累积 take，`parent_clip_id` 未用）
