@@ -73,6 +73,11 @@ IDEM_KEY_PATTERN = rf"^[A-Za-z0-9._:-]{{1,{IDEM_KEY_MAX}}}$"
 LOGIN_FAIL_LIMIT = 5
 LOGIN_FAIL_WINDOW = 60  # 秒；同 (IP, email) 组合
 SSE_BUFFER = 100
+# 质检数值门：全部判据 pass 但均分低于它 → 默认模式留在 review 等人，auto 模式允许再试一次
+VISION_SCORE_GATE = 70
+# 动线判定只能给粗分（它不知道画面内容），分数只用来提示"质量边缘"
+MOTION_SCORE_PASS = 90
+MOTION_SCORE_FAIL = 30
 SSE_POLL = 0.5  # 跨副本兜底轮询周期（秒）：单副本走进程内直推，不受它影响
 EVENT_KEEP_DAYS = 1  # event_log 保留天数：只用于补发/续传，不是审计日志
 EVENT_PRUNE_EVERY = 500  # 每发布 N 条顺手清一次旧行

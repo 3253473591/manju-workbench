@@ -833,9 +833,19 @@ function QcPanel({ take }: { take: Revision }) {
   const results = take.acceptance_result ?? [];
   if (results.length === 0) return null;
   const pending = results.filter((item) => item.result === "unknown").length;
+  const scores = results
+    .map((item) => item.score)
+    .filter((score): score is number => typeof score === "number");
+  const average = scores.length ? Math.round(scores.reduce((left, right) => left + right, 0) / scores.length) : null;
+  const low = average !== null && average < 70;
   return (
     <div className="mj-qc">
-      <h3>质检结论 · 第 {take.seq ?? "?"} 次产物</h3>
+      <h3>
+        质检结论 · 第 {take.seq ?? "?"} 次产物
+        {average !== null && (
+          <em className={low ? "mj-qc-low_score" : undefined}>均分 {average} / 阈值 70</em>
+        )}
+      </h3>
       {take.motion && (
         <p className="mj-hint">
           动线 {take.motion.samples ?? "—"} 采样点 · avg {take.motion.avg ?? "—"} · max {take.motion.max ?? "—"} · 冻结{" "}
@@ -846,6 +856,7 @@ function QcPanel({ take }: { take: Revision }) {
         {results.map((item) => (
           <li key={item.id} className={`mj-qc-item mj-qc-${item.result}`}>
             <b>{item.result}</b>
+            {typeof item.score === "number" && <em>{item.score} 分</em>}
             <span>{item.evidence}</span>
           </li>
         ))}

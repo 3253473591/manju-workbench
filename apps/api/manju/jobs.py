@@ -28,7 +28,13 @@ from manju import clip_rules, lessons, review, seed
 from manju.events import BUS
 from manju import runtime
 from manju.config import Settings
-from manju.constants import BUDGET_JOB_MAX, BUDGET_LIMIT_MIN, BUDGET_PROJECT_DAILY, TRACE_KEEP
+from manju.constants import (
+    BUDGET_JOB_MAX,
+    BUDGET_LIMIT_MIN,
+    BUDGET_PROJECT_DAILY,
+    TRACE_KEEP,
+    VISION_SCORE_GATE,
+)
 from manju.errors import ApiError, ErrorCode
 from manju.models import Asset, Clip, Episode, Job, JobTrace, Project, Revision
 from manju.providers import Provider, ProviderError, ProviderResult, make_provider
@@ -532,10 +538,12 @@ def _finish_video(session: Session, job: Job, clip: Clip, revision: Revision,
         report = review.judge_with_vision(
             clip.acceptance_json, report, media, make_provider(settings), workdir=settings.media_root / ".review"
         )
+    score = review.score_of(report.results)
     record_trace(
         session, job, "review", verdict=report.verdict, ms=_elapsed_ms(review_started),
         failed=[item["id"] for item in report.results if item["result"] == "fail"],
         unknown=[item["id"] for item in report.results if item["result"] == "unknown"],
+        score=score,
         degraded=report.degraded,
     )
     revision.acceptance_result_json = report.results or None
@@ -607,16 +615,58 @@ def _finish_video(session: Session, job: Job, clip: Clip, revision: Revision,
     # 一条验收点都没有 ≠ 判不了：没有可机检项，就不该把出片永远堵在 review（第二集终剪文档
     # 没有验收点段，实测会一直 awaiting_human）。留痕写进 trace，不假装"质检通过"。
     unaudited = not report.results
-    if judged_pass or unaudited:
+    # 数值门：判据都 pass、但均分低于阈值 → 默认模式留给人看；auto 模式允许多试一次
+    low_pending = judged_pass and score is not None and score < VISION_SCORE_GATE
+    if low_pending:
+        low_fix = "质检均分偏低：把主体放大、给镜头明确位移与情绪落点，不要用静态构图凑时长"
+        if job.mode == "auto" and job.attempts + 1 < job.max_attempts:
+            lessons.remember(
+                session,
+                scope=f"project:{_project_id(session, clip)}",
+                failure_type="low_score",
+                symptom=f"质检均分 {score} < {VISION_SCORE_GATE}",
+                fix=low_fix,
+                evidence_revision_id=revision.id,
+            )
+            clip.prompt = f"{clip.prompt or ''}\n{low_fix}".strip()
+            record_trace(
+                session, job, "decision", verdict="retry",
+                failure_type="low_score", fix=low_fix, score=score, threshold=VISION_SCORE_GATE,
+                attempts=job.attempts + 1,
+            )
+            _guarded(
+                session,
+                job,
+                state="queued",
+                attempts=job.attempts + 1,
+                cost_used=spent,
+                error_code="ACCEPTANCE_FAIL",
+                error_detail={"low_score": score, "threshold": VISION_SCORE_GATE, "fix": low_fix},
+                locked_by=None,
+                finished_at=None,
+            )
+            session.flush()
+            session.refresh(job)
+            _emit_job(project_id, job)
+            _emit_clip(project_id, clip)
+            return job
+    if (judged_pass or unaudited) and not low_pending:
         # 只有**全部**判据都真判过才算通过。带 unknown 的留在 review 等人看：
         # "判不了"不等于"通过"（`02` §6.1 的 done 条件是全部验收点 pass）
         clip_rules.enforce_transition(clip.status, "approved")
         clip.status = "approved"
     record_trace(
         session, job, "decision",
-        verdict="approved" if judged_pass else ("no_criteria" if unaudited else "awaiting_human"),
+        verdict=(
+            "low_score" if low_pending
+            else "approved" if judged_pass
+            else "no_criteria" if unaudited
+            else "awaiting_human"
+        ),
         clip_status=clip.status,
         criteria=len(report.results),
+        score=score,
+        threshold=VISION_SCORE_GATE if low_pending else None,
     )
     _guarded(
         session,

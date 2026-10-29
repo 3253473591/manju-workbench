@@ -166,7 +166,7 @@ export interface Revision {
   prompt: string | null;
   cost: string;
   motion: { samples?: number; freeze?: number; avg?: number; max?: number } | null;
-  acceptance_result: { id: string; result: string; evidence: string }[] | null;
+  acceptance_result: { id: string; result: string; score?: number | null; evidence: string }[] | null;
 }
 
 export interface AssetItem {

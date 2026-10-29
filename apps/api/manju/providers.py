@@ -223,7 +223,8 @@ class MockProvider(Provider):
             if landed is None:
                 verdicts.append({"id": item["id"], "result": "unknown", "evidence": "[mock] 无预设判据"})
             else:
-                verdicts.append({"id": item["id"], "result": landed[1], "evidence": f"[mock] {landed[2]}"})
+                score = 88 if landed[1] == "pass" else 32
+                verdicts.append({"id": item["id"], "result": landed[1], "score": score, "evidence": f"[mock] {landed[2]}"})
         return VisionResult(
             model="mock-vision",
             verdicts=verdicts,
@@ -333,7 +334,7 @@ class OpenAICompatProvider(Provider):
     def vision(self, *, image: Path, criteria: list[dict]) -> VisionResult:
         instruction = (
             "下面是一张由视频均匀抽帧拼成的联络图。请逐条判断验收点是否成立，"
-            "只输出 JSON：{\"verdicts\":[{\"id\":\"...\",\"result\":\"pass|fail|unknown\",\"evidence\":\"...\"}]}。"
+            "只输出 JSON：{\"verdicts\":[{\"id\":\"...\",\"result\":\"pass|fail|unknown\",\"score\":0-100,\"evidence\":\"...\"}]}。"
             "看不出来就判 unknown，不要猜。\n"
             + "\n".join(f"- id={item['id']}：{item['criterion']}" for item in criteria)
         )
@@ -731,7 +732,11 @@ def _clean_verdicts(payload: dict) -> list[dict]:
         result = item.get("result")
         if result not in ("pass", "fail", "unknown"):
             continue
-        verdicts.append({"id": item["id"], "result": result, "evidence": str(item.get("evidence") or "")[:300]})
+        entry = {"id": item["id"], "result": result, "evidence": str(item.get("evidence") or "")[:300]}
+        raw_score = item.get("score")
+        if result != "unknown" and isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
+            entry["score"] = max(0, min(100, int(round(raw_score))))
+        verdicts.append(entry)
     return verdicts
 
 

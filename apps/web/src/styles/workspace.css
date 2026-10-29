@@ -842,3 +842,21 @@
   justify-content: flex-start;
   margin-top: 2px;
 }
+
+/* 质检数值门：均分低于阈值时用琥珀色提示，不改变判定语义 */
+.mj-qc h3 em {
+  margin-left: 10px;
+  font-style: normal;
+  font-size: 11.5px;
+  color: #8a8a96;
+  font-variant-numeric: tabular-nums;
+}
+.mj-qc h3 em.mj-qc-low_score {
+  color: #e0a33c;
+}
+.mj-qc-item em {
+  font-style: normal;
+  font-size: 11px;
+  color: #8a8a96;
+  font-variant-numeric: tabular-nums;
+}

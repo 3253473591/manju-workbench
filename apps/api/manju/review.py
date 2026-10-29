@@ -20,6 +20,7 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 
+from manju.constants import MOTION_SCORE_FAIL, MOTION_SCORE_PASS, VISION_SCORE_GATE
 from manju.providers import Provider, ProviderError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -77,6 +78,21 @@ class Report:
     verdict: str  # pass | fail | unknown
     degraded: bool
     note: str | None = None
+
+
+def score_of(results: list[dict]) -> int | None:
+    """已判定判据的均分（unknown 不带分，不参与）。没有可算的就返回 None，不编 0 分。"""
+    scores = [
+        int(item["score"])
+        for item in results
+        if isinstance(item.get("score"), int) and not isinstance(item.get("score"), bool)
+    ]
+    return round(sum(scores) / len(scores)) if scores else None
+
+
+def is_low_score(results: list[dict], threshold: int = VISION_SCORE_GATE) -> bool:
+    score = score_of(results)
+    return score is not None and score < threshold
 
 
 def vscan_path() -> Path | None:
@@ -226,7 +242,8 @@ def judge(acceptance: list[dict] | None, motion: Motion | None, note: str | None
             results.append({"id": item.get("id"), "result": "unknown", "evidence": "验收点缺 criterion（脏数据）"})
             continue
         verdict, evidence = _judge_one(criterion, motion)
-        results.append({"id": item.get("id"), "result": verdict, "evidence": evidence})
+        score = MOTION_SCORE_PASS if verdict == "pass" else MOTION_SCORE_FAIL
+        results.append({"id": item.get("id"), "result": verdict, "score": score, "evidence": evidence})
     return Report(motion=motion, results=results, verdict=_verdict(results), degraded=False, note=note)
 
 
@@ -306,12 +323,19 @@ def judge_with_vision(
     except ProviderError as exc:
         return replace(report, note=f"视觉判定失败：{exc}", degraded=True)
     judged = {item["id"]: item for item in result.verdicts}
-    results = [
-        {"id": item["id"], "result": judged[item["id"]]["result"], "evidence": judged[item["id"]]["evidence"]}
-        if item["id"] in judged and item["result"] == "unknown"
-        else item
-        for item in report.results
-    ]
+    results = []
+    for item in report.results:
+        if item["id"] in judged and item["result"] == "unknown":
+            merged = {
+                "id": item["id"],
+                "result": judged[item["id"]]["result"],
+                "evidence": judged[item["id"]]["evidence"],
+            }
+            if "score" in judged[item["id"]]:
+                merged["score"] = judged[item["id"]]["score"]
+            results.append(merged)
+        else:
+            results.append(item)
     left = sum(1 for item in results if item["result"] == "unknown")
     return replace(
         report,
