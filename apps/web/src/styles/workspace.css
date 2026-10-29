@@ -860,3 +860,54 @@
   color: #8a8a96;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------------------------------------------------------------- 发布门与预算档位 */
+
+.mj-publish {
+  border-bottom: 1px solid #22222a;
+}
+.mj-publish .mj-wall-head {
+  gap: 10px;
+}
+.mj-gate {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 24px 12px;
+  list-style: none;
+}
+.mj-gate li {
+  display: grid;
+  grid-template-columns: 52px 150px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 11.5px;
+  color: #b9b9c4;
+}
+.mj-gate li b {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.mj-gate li.ok b {
+  color: #5fbf86;
+}
+.mj-gate li.bad b {
+  color: #d4677a;
+}
+.mj-gate li em {
+  font-style: normal;
+  color: #6d6d78;
+  font-variant-numeric: tabular-nums;
+}
+.mj-budget {
+  margin: 8px 24px 0;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: #8a8a96;
+}
+.mj-budget-warn {
+  color: #e0a33c;
+}
+.mj-budget-over {
+  color: #d4677a;
+}

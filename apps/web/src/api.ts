@@ -317,8 +317,28 @@ export const api = {
     projectId: number,
     groupBy: "model" | "day" | "clip" | "episode" = "model",
   ) =>
-    request<{ group_by: string; items: CostItem[]; total: { calls: number; cost: string } }>(
-      `/projects/${projectId}/cost?group_by=${groupBy}`,
+    request<{
+      group_by: string;
+      items: CostItem[];
+      total: { calls: number; cost: string };
+      budget: { spent_today: string; limit: string; ratio: number; tier: "ok" | "warn" | "over" };
+    }>(`/projects/${projectId}/cost?group_by=${groupBy}`),
+
+  /** 发布门预览：产物 / 审批 / 质检 / 预算四道检查。 */
+  episodeReadiness: (episodeId: number) =>
+    request<{
+      episode_id: number;
+      status: string;
+      ready: boolean;
+      checks: { id: string; label: string; ok: boolean; detail: Record<string, unknown> }[];
+      blockers: string[];
+    }>(`/episodes/${episodeId}/readiness`),
+
+  /** 发布：四道检查全过才允许，否则 409 PUBLISH_BLOCKED（带逐项原因）。 */
+  publishEpisode: (episodeId: number) =>
+    request<{ episode: Episode; readiness: { ready: boolean; blockers: string[] } }>(
+      `/episodes/${episodeId}/publish`,
+      { method: "POST" },
     ),
 
   /** 付费点提交：`If-Match` 用列表拿到的 `clip.version`，幂等键由调用方生成一次并复用。 */

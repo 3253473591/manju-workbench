@@ -29,6 +29,7 @@ class ErrorCode(StrEnum):
     CONFLICT_SKILL_ACTIVE = "CONFLICT_SKILL_ACTIVE"
     CONFLICT_ASSET_REFERENCED = "CONFLICT_ASSET_REFERENCED"
     CONFLICT_HAS_REVISIONS = "CONFLICT_HAS_REVISIONS"
+    PUBLISH_BLOCKED = "PUBLISH_BLOCKED"
     CONFLICT_EMAIL = "CONFLICT_EMAIL"
     LOCK_HELD = "LOCK_HELD"
     IDEM_KEY_REUSED = "IDEM_KEY_REUSED"
@@ -82,6 +83,8 @@ SPECS: dict[ErrorCode, ErrorSpec] = {
     ErrorCode.CONFLICT_ASSET_REFERENCED: ErrorSpec(409, "该资产正被引用，不能删除", "service"),
     # revision 走不掉审计：删掉它的载体 clip/集 = 把已付的钱从台账里带走（`03` §3）
     ErrorCode.CONFLICT_HAS_REVISIONS: ErrorSpec(409, "该内容已有付费产物，不能删除", "service"),
+    # 发布门：四道检查（产物/审批/质检/预算）任一不过就拒，detail 带逐项结果
+    ErrorCode.PUBLISH_BLOCKED: ErrorSpec(409, "发布条件不满足", "service"),
     ErrorCode.CONFLICT_EMAIL: ErrorSpec(409, "该邮箱已注册", "api"),
     ErrorCode.LOCK_HELD: ErrorSpec(409, "该片段正在被他人编辑", "service"),
     ErrorCode.IDEM_KEY_REUSED: ErrorSpec(409, "幂等键已用于不同请求", "api"),

@@ -296,6 +296,10 @@ function Workspace({ me }: { me: Me }) {
         />
       )}
 
+      {tab === "table" && episode && (
+        <PublishGate episode={episode} canWrite={canWrite} onChanged={refresh} />
+      )}
+
       {tab === "table" && clips.data && (
         <table className="mj-table">
           <thead>
@@ -1555,6 +1559,12 @@ function CostTable({ projectId }: { projectId: number }) {
           </button>
         ))}
       </div>
+      {cost.data?.budget && (
+        <p className={`mj-budget mj-budget-${cost.data.budget.tier}`}>
+          今日预算 {cost.data.budget.tier.toUpperCase()} · ¥{cost.data.budget.spent_today} / ¥{cost.data.budget.limit}
+          （{Math.round(cost.data.budget.ratio * 100)}%）
+        </p>
+      )}
       <table className="mj-table">
         <thead>
           <tr>
@@ -1585,5 +1595,71 @@ function CostTable({ projectId }: { projectId: number }) {
         </tbody>
       </table>
     </>
+  );
+}
+
+
+/** 发布门：四道检查逐项展示；只有全过才出现「发布」。 */
+function PublishGate({
+  episode,
+  canWrite,
+  onChanged,
+}: {
+  episode: Episode;
+  canWrite: boolean;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const readiness = useQuery({
+    queryKey: ["readiness", episode.id],
+    queryFn: () => api.episodeReadiness(episode.id),
+    enabled: open,
+  });
+  const publish = useMutation({
+    mutationFn: () => api.publishEpisode(episode.id),
+    onSuccess: () => {
+      onChanged();
+      readiness.refetch();
+    },
+  });
+  const data = readiness.data;
+  return (
+    <section className="mj-publish">
+      <div className="mj-wall-head">
+        <button className={open ? "on" : ""} onClick={() => setOpen((value) => !value)}>
+          {open ? "收起发布检查" : "发布检查"}
+        </button>
+        {episode.status === "done" && <span className="mj-hint">本集已发布（done）</span>}
+        {open && data && (
+          <span className="mj-hint">
+            {data.ready ? "四道检查全过" : `阻塞：${data.blockers.join(" / ")}`}
+          </span>
+        )}
+        {open && data?.ready && canWrite && episode.status !== "done" && (
+          <button onClick={() => publish.mutate()} disabled={publish.isPending}>
+            {publish.isPending ? "发布中…" : "发布"}
+          </button>
+        )}
+      </div>
+      {open && readiness.isLoading && <p className="mj-hint">检查中…</p>}
+      {open && readiness.isError && <p className="mj-error">{(readiness.error as ApiError).message}</p>}
+      {open && data && (
+        <ul className="mj-gate">
+          {data.checks.map((check) => (
+            <li key={check.id} className={check.ok ? "ok" : "bad"}>
+              <b>{check.ok ? "OK" : "BLOCK"}</b>
+              <span>{check.label}</span>
+              <em>
+                {Object.entries(check.detail)
+                  .map(([key, value]) => `${key}=${String(value)}`)
+                  .join(" · ")}
+              </em>
+            </li>
+          ))}
+        </ul>
+      )}
+      {publish.error && <p className="mj-error">{(publish.error as ApiError).message}</p>}
+      {publish.data && <p className="mj-msg">已发布：{publish.data.episode.title ?? "本集"}</p>}
+    </section>
   );
 }

@@ -11,7 +11,7 @@ from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from manju import clip_rules
+from manju import clip_rules, readiness
 from manju.deps import (
     Paging,
     PathId,
@@ -26,7 +26,18 @@ from manju.deps import (
 )
 from manju.errors import ApiError, ErrorCode
 from manju.models import Asset, Clip, Episode, Revision, User
-from manju.schemas import ApiModel, ClipCreate, ClipOut, ClipUpdate, EpisodeCreate, EpisodeOut, EpisodeUpdate, Page
+from manju.schemas import (
+    ApiModel,
+    ClipCreate,
+    ClipOut,
+    ClipUpdate,
+    EpisodeCreate,
+    EpisodeOut,
+    EpisodeUpdate,
+    Page,
+    PublishOut,
+    ReadinessOut,
+)
 
 router = APIRouter(tags=["content"])
 
@@ -321,6 +332,45 @@ def move_episode(
             select(Episode).where(Episode.project_id == episode.project_id).order_by(Episode.idx)
         )
     ]
+
+
+@router.get("/episodes/{episode_id}/readiness")
+def get_readiness(
+    episode_id: PathId,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+) -> ReadinessOut:
+    """发布门预览：产物 / 审批 / 质检 / 预算四道检查，返回逐项结果与阻塞项。"""
+    episode = _episode_for_read(session, user, episode_id)
+    return ReadinessOut(**readiness.episode_readiness(session, episode))
+
+
+@router.post("/episodes/{episode_id}/publish")
+def publish_episode(
+    episode_id: PathId,
+    session: Session = Depends(get_session),
+    user: User = Depends(current_user),
+) -> PublishOut:
+    """把一集标记为 done —— **只有四道检查全过才允许**；不满足返回 409 与逐项原因。
+
+    幂等：已经 done 的集再点发布仍然 200（不会加版本），但检查结果照常返回。
+    """
+    episode = _episode_for_write(session, user, episode_id)
+    result = readiness.episode_readiness(session, episode)
+    if not result["ready"]:
+        raise ApiError(
+            ErrorCode.PUBLISH_BLOCKED,
+            {
+                "blockers": result["blockers"],
+                "checks": result["checks"],
+            },
+        )
+    if episode.status != "done":
+        episode.status = "done"
+        episode.version += 1
+        episode.updated_at = _now()
+        session.commit()
+    return PublishOut(episode=EpisodeOut.model_validate(episode), readiness=ReadinessOut(**result))
 
 
 @router.get("/episodes/{episode_id}")

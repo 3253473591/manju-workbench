@@ -28,6 +28,7 @@ from manju.deps import (
 from manju.constants import TIME_RANGE_MAX_DAYS
 from manju.errors import ApiError, ErrorCode
 from manju.models import Clip, Episode, Project, ProjectMember, Revision, User
+from manju.readiness import budget_status
 from manju.schemas import (
     CostItem,
     CostOut,
@@ -264,6 +265,7 @@ def project_cost(
         CostItem(key=str(row[0]), calls=row[1], tokens=int(row[2]), seconds=Decimal(row[3]), cost=Decimal(row[4]))
         for row in rows
     ]
+    budget = budget_status(session, project_id)
     return CostOut(
         group_by=group_by,
         items=items,
@@ -271,4 +273,10 @@ def project_cost(
             calls=sum(item.calls for item in items),
             cost=sum((item.cost for item in items), Decimal("0")),
         ),
+        budget={
+            "spent_today": budget["spent_today"],
+            "limit": budget["limit"],
+            "ratio": budget["ratio"],
+            "tier": budget["tier"],
+        },
     )

@@ -123,7 +123,7 @@ def _lock_project(session: Session, clip: Clip) -> int:
     return project_id
 
 
-def _project_spent_today(session: Session, project_id: int) -> Decimal:
+def project_spent_today(session: Session, project_id: int) -> Decimal:
     """项目当天的花费（UTC 自然日）。数据源只有 `revision.cost`，不重算（`02` §5.7）。"""
     clip_ids = select(Clip.id).join(Episode, Episode.id == Clip.episode_id).where(
         Episode.project_id == project_id
@@ -173,7 +173,7 @@ def submit(
         raise ApiError(ErrorCode.PROJECT_BUSY, {"retry_after_s": 5}, headers={"Retry-After": "5"})
     # 项目日预算（`03` §7.3）：到上限就**在提交前** 402，不排进队列再失败。
     # 这一闸以前只有常量和文档、代码里没有 —— 业务逻辑探针撞出来的缺口。
-    spent_today = _project_spent_today(session, project_id)
+    spent_today = project_spent_today(session, project_id)
     if spent_today >= BUDGET_PROJECT_DAILY:
         raise ApiError(
             ErrorCode.BUDGET_EXCEEDED,

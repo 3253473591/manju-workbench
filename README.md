@@ -38,6 +38,7 @@ Agent 负责编排与自愈，人只在**付费点**和**审批**上做决定。
 - **出片**：付费点确认 → 入仓（补宽高/时长/海报）→ 动线质检（vscan）→ 内容级判据交视觉模型
 - **打回 / 重发**：`review → rejected → reroll`，重发链路记 `parent_revision_id`
 - **数值化质检门**：每条判据带 0–100 分；均分 <70 时默认模式留在 review 等人，auto 模式允许再试一次（分数进 trace 与质检面板）
+- **发布门**：一集能否置 `done` 由四维检查决定（产物完整 / 全部 approved / 质检无失败且未判率 ≤20% / 预算未 over）；成本台账同时显示 ok-warn-over 档位
 - **版本链**：take 列表、两版 diff、回滚（回滚不写新 revision、不花钱）
 
 **工程面**
@@ -223,7 +224,7 @@ apps/web (React)  ──HTTP / SSE──▶  apps/api（鉴权 · 权限 · 形�
 | 出图（gpt-image-2 low 1024²） | **40 s** / 1.58 MB PNG / 缩略图 53 KB；人物卡可直接进槽位 |
 | 多集 | 第一集 8 片段 + 第二集 5 片段同项目；成本按集 `第1集 ¥50.78 / 第2集 ¥2.65` |
 
-**测试**：`574 passed / 1 skipped`（真 MySQL，每个用例事务回滚），其中
+**测试**：`582 passed / 1 skipped`（真 MySQL，每个用例事务回滚），其中
 **20 条 golden 契约回归** + **164 条对抗性探针** + **35 条 provider 适配**。
 
 > 文本/视觉目前 `revision.cost` 记 0、`unit_price` 记 `NULL`：文本单价还没实测，

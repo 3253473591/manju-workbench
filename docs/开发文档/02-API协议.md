@@ -120,6 +120,8 @@ X-Budget-Remaining: 8.720000     # 仅生成类响应，便于前端预判
 | PATCH | `/episodes/{eid}` | write | M |
 | DELETE | `/episodes/{eid}` | write | 删集：片段随外键级联；**不重编号**；有付费产物 → `409 CONFLICT_HAS_REVISIONS` |
 | POST | `/episodes/{eid}/move` | write | `{to_idx}`；插入式平移 + 空槽占位（绕开 `uk_ep_idx`） |
+| GET | `/episodes/{eid}/readiness` | 登录 | 发布门预览：产物 / 审批 / 质检 / 预算四道检查 |
+| POST | `/episodes/{eid}/publish` | write | 四道检查全过才置 `done`，否则 `409 PUBLISH_BLOCKED`（幂等） |
 | GET | `/episodes/{eid}/clips` | 登录（不分页） | |
 | GET | `/projects/{pid}/clips` | 登录（游标分页） | 项目级镜头墙：跨集拉全部片段，`episode_id` 够前端回查集号 |
 | POST | `/episodes/{eid}/clips` | write | |
@@ -269,6 +271,7 @@ GET /assets/62/file?thumb=1 → 缩略图（没有则回落原片并标 X-Thumb-
 | `CONFLICT_SKILL_ACTIVE` | 409 | ❌ | service | 该技能已有生效版本 |
 | `CONFLICT_ASSET_REFERENCED` | 409 | ❌ | service | 该资产正被引用，不能删除（`detail.usages` 列出引用方） |
 | `CONFLICT_HAS_REVISIONS` | 409 | ❌ | service | 该内容已有付费产物，删除会让台账漏记（`detail.revisions` 是条数） |
+| `PUBLISH_BLOCKED` | 409 | ❌ | service | 发布门未过（`detail.blockers` 是阻塞项 id 列表，`detail.checks` 是逐项结果） |
 | `CONFLICT_EMAIL` | 409 | ❌ | api | 该邮箱已注册 |
 | `LOCK_HELD` | 409 | ❌ | service | 该片段正在被他人编辑 |
 | `IDEM_KEY_REUSED` | 409 | ❌ | api | 幂等键已用于不同请求 |
@@ -665,7 +668,17 @@ draft ──S4──▶ prompted ──generate──▶ generating ──▶ `r
 `approved → rejected` 是刻意留的捷径：**通过之后又发现问题**时，"撤销通过并打回"一步到位，
 否则得 `approved → review` 再 `review → rejected` 两次点击（中间还会闪一下待审状态）。
 
-### 6.3.1 数值化质检门
+### 6.3 `skill_version`
+
+```
+draft ──dry-run ok──▶ draft(可发布) ──publish──▶ active ──新版本 publish──▶ superseded
+```
+
+`superseded` 可通过 `POST /skills/{sid}/rollback {version}` 复归 `active`（原 active 变 `superseded`）。
+
+---
+
+### 6.4 数值化质检门
 
 `acceptance_result` 的每条判据可带 `score`（0–100，`unknown` 不带分）。动线判定只能给粗分
 （pass=90 / fail=30，它不知道画面内容）；视觉判定由模型给分。所有已判定判据的均分低于
@@ -676,15 +689,20 @@ draft ──S4──▶ prompted ──generate──▶ generating ──▶ `r
 
 分数同时写入 `job_trace` 的 `review` 与 `decision` 两步，前端据此显示「均分 / 阈值」。
 
-### 6.3 `skill_version`
+### 6.5 发布门与预算档位
 
-```
-draft ──dry-run ok──▶ draft(可发布) ──publish──▶ active ──新版本 publish──▶ superseded
-```
+`GET /episodes/{eid}/readiness` 返回四道检查（都带 `detail` 数值，便于前端直接展示）：
 
-`superseded` 可通过 `POST /skills/{sid}/rollback {version}` 复归 `active`（原 active 变 `superseded`）。
+| id | 检查 | 通过条件 |
+|---|---|---|
+| `assets` | 片段产物完整 | 每个片段都有当前 take 的产物 |
+| `approval` | 全部片段已通过审批 | `approved == 片段数`（review/rejected 都算阻塞） |
+| `quality` | 质检无失败、未判率 ≤ 20% | `failed == 0` 且 `unknown / (decided+unknown) ≤ 0.2` |
+| `budget` | 项目当天预算未超 | 档位 `!= over`（`ok < 70% ≤ warn < 100% ≤ over`） |
 
----
+`POST /episodes/{eid}/publish` 只在 `ready=true` 时把集置为 `done`；否则 409 并返回阻塞项与逐项结果。
+幂等：已 `done` 的集重复发布仍 200，不增加版本。成本接口（§5.7）的响应同样带 `budget`
+（`spent_today / limit / ratio / tier`），前端据此显示三档横幅。
 
 ## 7. SSE 协议
 

@@ -362,10 +362,39 @@ class CostTotal(BaseModel):
     cost: Money
 
 
+class BudgetOut(BaseModel):
+    spent_today: Money
+    limit: Money
+    ratio: float
+    tier: str  # ok | warn | over
+
+
 class CostOut(BaseModel):
     group_by: str
     items: list[CostItem]
     total: CostTotal
+    budget: BudgetOut
+
+
+class ReadinessCheckOut(BaseModel):
+    id: str
+    label: str
+    ok: bool
+    detail: dict
+
+
+class ReadinessOut(BaseModel):
+    episode_id: int
+    status: str
+    ready: bool
+    checks: list[ReadinessCheckOut]
+    blockers: list[str]
+    checked_at: datetime
+
+
+class PublishOut(BaseModel):
+    episode: EpisodeOut
+    readiness: ReadinessOut
 
 
 class LessonOut(OutModel):
